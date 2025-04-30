@@ -6,10 +6,12 @@ from torchvision.transforms import ToTensor
 import matplotlib.pyplot as plt
 import numpy as np
 
-"""
-Does not pad the dataset with zeroes, i.e. it start at the `lag_size`th entry (fewer entries in total)
-"""
 class NonPaddingDataset(Dataset):
+    """
+    Does not pad the dataset with zeroes, i.e. it start at the `lag_size`th entry (fewer entries in total)
+    
+    i.e. with a lag size of 5, the first entry will be `x = [y_0,y_1,y_2,y_3,y_4], y = y_5`
+    """
     def __init__(self, lag_size: int):
         self.data = np.array(loadmat("data/Xtrain.mat")["Xtrain"])
         self.lag_size = lag_size
@@ -26,13 +28,14 @@ class NonPaddingDataset(Dataset):
         return feature, target
 
 
-"""
-Pads the start of the dataset with a number of zeroes equal to the lag parameter. 
-
-i.e. with a lag size of 5, the first entry will be x = [0,0,0,0,0] y = y_0
-
-"""
 class PaddingDataset(NonPaddingDataset):
+    """
+    Pads the start of the dataset with a number of zeroes equal to the lag parameter. 
+
+    i.e. with a lag size of 5, the first entry will be `x = [0,0,0,0,0], y = y_0`
+
+    """
+
     def __init__(self, lag_size: int):
         super().__init__(lag_size)
         # Pad dataset with zeroes
