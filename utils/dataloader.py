@@ -5,6 +5,10 @@ from torchvision import datasets
 from torchvision.transforms import ToTensor
 import matplotlib.pyplot as plt
 import numpy as np
+from torch.utils.data import DataLoader, random_split
+import numpy as np
+from scipy.io import loadmat
+
 
 class NonPaddingDataset(Dataset):
     """
@@ -41,6 +45,61 @@ class PaddingDataset(NonPaddingDataset):
         # Pad dataset with zeroes
         self.data = np.append(np.zeros(lag_size), self.data)
 
+def create_datasets_and_loaders(lag_size: int, test_ratio: float = 0.2, batch_size: int = 32, seed: int = 42):
+    """
+    Creates aligned train/test splits for both Padding and NonPadding datasets.
+    
+    Args:
+        lag_size: Size of the lookback window
+        test_ratio: Fraction of data to use for testing (0.0-1.0)
+        batch_size: Batch size for DataLoaders
+        seed: Random seed for reproducible splits
+        
+    Returns:
+        Tuple of (padding_train_loader, padding_test_loader, 
+                 nonpadding_train_loader, nonpadding_test_loader)
+    """
+    # determine dataset size
+    raw_data = np.array(loadmat("data/Xtrain.mat")["Xtrain"]).flatten()
+    n_total = len(raw_data)
+    
+    # determine split points
+    test_size = int(n_total * test_ratio)
+    train_size = n_total - test_size
+ 
+    padding_ds = PaddingDataset(lag_size)
+    nonpadding_ds = NonPaddingDataset(lag_size)
+    
+    # Create splits that maximize alignment
+    # Padding dataset has `lag_size` more points 
+    padding_train_size = train_size
+    padding_test_size = len(padding_ds) - padding_train_size
+    
+    nonpadding_train_size = train_size - lag_size 
+    nonpadding_test_size = len(nonpadding_ds) - nonpadding_train_size
+    
+    # Split datasets
+    padding_train, padding_test = random_split(
+        padding_ds, 
+        [padding_train_size, padding_test_size],
+        generator=torch.Generator().manual_seed(seed)
+    )
+    
+    nonpadding_train, nonpadding_test = random_split(
+        nonpadding_ds,
+        [nonpadding_train_size, nonpadding_test_size],
+        generator=torch.Generator().manual_seed(seed))
+    
+    # Create DataLoaders
+    loaders = (
+        DataLoader(padding_train, batch_size=batch_size, shuffle=True),
+        DataLoader(padding_test, batch_size=batch_size, shuffle=False),
+        DataLoader(nonpadding_train, batch_size=batch_size, shuffle=True),
+        DataLoader(nonpadding_test, batch_size=batch_size, shuffle=False)
+    )
+    
+    return loaders
+
 if __name__ == "__main__":
     ds = PaddingDataset(3)
     print("padding:")
@@ -55,5 +114,16 @@ if __name__ == "__main__":
         if i == 10:
             break
 
+    # Create datasets with aligned splits
+    padding_train_loader, padding_test_loader, nonpadding_train_loader, nonpadding_test_loader = create_datasets_and_loaders(
+         lag_size=5, 
+         test_ratio=0.2,
+         batch_size=32
+     )
+
+    print(f"Padding Dataset - Train: {len(padding_train_loader.dataset)} samples")
+    print(f"Padding Dataset - Test: {len(padding_test_loader.dataset)} samples")
+    print(f"NonPadding Dataset - Train: {len(nonpadding_train_loader.dataset)} samples")
+    print(f"NonPadding Dataset - Test: {len(nonpadding_test_loader.dataset)} samples")
 
 

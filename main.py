@@ -6,6 +6,8 @@ from model_architectures.models import baselines, GRUs # LSTMs, etc.
 from model_architectures.base_model import BaseModel
 import click
 from typing import List, Tuple
+    
+from sklearn.model_selection import train_test_split
 
 # argument parsing
 @click.command()
@@ -59,7 +61,11 @@ def main(models: List[str], lag_params: List[int], dataset: List[str]):
         click.echo(f"\t{model.name}")
     click.echo(f"Using lag parameters: {', '.join(map(str, lags))}")
     click.echo(f"On datasets: {', '.join(map(str, dataset))}")
- 
+
+
+# def train(model: BaseModel, lag_parameter: int, Dataset: torch.Dataset):
+#     split = train
+#
 
 
 if __name__ == '__main__':
