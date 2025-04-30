@@ -25,13 +25,18 @@ class GRUModel(BaseModel):
         return f"GRU, hidden dimensions: {self.hidden_dim}, number of layers: {self.num_layers}" 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Initialize hidden state
-        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_dim).to(x.device)
+        # Ensure input has shape [batch_size, seq_len, input_size]
+        if len(x.shape) == 2:  # [batch_size, features]
+            x = x.unsqueeze(1)  # [batch_size, 1, features]
+        
+        batch_size = x.size(0)
+        
+        # Initialize hidden state with proper shape
+        h0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(x.device)
         
         # GRU forward pass
         out, _ = self.gru(x, h0)
         
         # Take the last time step's output
         out = self.fc(out[:, -1, :])
-        return out
-
+        return out.squeeze()  # Remove extra dimension to match target shape

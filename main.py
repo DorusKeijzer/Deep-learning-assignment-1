@@ -1,7 +1,9 @@
 from collections.abc import Callable
-
+from model_architectures.gru import GRUModel
+from model_architectures.baseline import MostRecentBaseline, MeanBaseline
 from torch.nn.modules import MSELoss
 from torch.optim import optimizer
+from torchvision.utils import math
 from model_architectures import baseline
 from utils.dataloader import create_datasets_and_loaders
 from model_architectures.models import models as ALL_MODELS
@@ -14,13 +16,21 @@ from typing import List, Tuple
     
 from sklearn.model_selection import train_test_split
 from typing import TypeVar
-from typing import List, Tuple, Type
+from typing import List, Tuple, Type, Dict, Any
 import torch
 from torch.utils.data import DataLoader
 from torch import nn
 
 # loss function is MSE everywhere
 LOSS_FUNC = nn.MSELoss()
+
+# Generalized model creation function that works with hyperparameter dictionaries
+def create_model(lag_param: int, model_class, params: Dict[str, Any]):
+    params["input_size"] = lag_param
+    
+    # Instantiate the model using parameters in the dictionary
+    return model_class(**params)
+
 
 
 
@@ -96,7 +106,7 @@ def main(models: List[str],
         # Train all models with default parameters
         python main.py
     """
-    models_to_evaluate: List[BaseModel] = []  
+    models_to_evaluate: List[Tuple[BaseModel, Dict[str, Any]]] = []  
 
     if "GRU" in models:
         models_to_evaluate.extend(GRUs)
@@ -106,29 +116,34 @@ def main(models: List[str],
 
     if len(models_to_evaluate) == 0:
         models_to_evaluate = ALL_MODELS
-    
+
     click.echo(f"Training models:")
-    for model in models_to_evaluate:
-        print(f"\t{model.name}")
+    for model_class, params in models_to_evaluate:
+        # create temporary model to print model
+        temporary_model = create_model(1,model_class, params)
+        print(f"\t{temporary_model.name}")
     click.echo(f"Using lag parameters: {', '.join(map(str, lag_params))}")
     click.echo(f"On datasets: {', '.join(map(str, datasets))}")
     click.echo(f"For {epochs} epochs, with {'no ' if no_early_stopping else ''}early stopping.")
 
-    for model in models_to_evaluate:
-        if not model.is_baseline:
-            optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-        else: 
-            optimizer = None
+    for model_class, params in models_to_evaluate:
 
         for lag_param in lag_params:
             for dataset in datasets:
                 padding_train_loader, padding_test_loader, nonpadding_train_loader, nonpadding_test_loader = create_datasets_and_loaders(lag_param)
                 if dataset == "Non-padding":
                     test_loader, train_loader = nonpadding_test_loader, nonpadding_train_loader
-                if dataset == "Padding":
+                elif dataset == "Padding":
                     test_loader, train_loader = padding_test_loader,    padding_train_loader
                 else:
-                    raise Exception("Dataset can only be 'Padding' or 'Non-padding'")
+                    raise Exception(f"'{dataset}' is not a valid dataset. Dataset can only be 'Padding' or 'Non-padding'")
+                model = create_model(lag_param, model_class, params)
+                if not model.is_baseline:
+                    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+                else: 
+                    optimizer = None
+                print(f"Training and evaluating model: {model.name} on dataset: {dataset}")
+
                 train(model,train_loader, test_loader, learning_rate, epochs, LOSS_FUNC, optimizer)
                 
 def train(model: BaseModel,
@@ -139,7 +154,6 @@ def train(model: BaseModel,
           loss_fn: Type[nn.MSELoss],
           optimizer: torch.optim.Adam) -> None:
 
-    print(f"Training and evaluating model: {model.name}")
     if not model.is_baseline: # non baseline models need training
         for epoch in range(epochs): 
             print(f"Epoch {epoch+1}\n-------------------------------")
@@ -149,23 +163,26 @@ def train(model: BaseModel,
     else: # baseline models only need to be evaluated
         test_loop(model, test_loader, loss_fn)
 
-
 def train_loop(model: BaseModel,
        train_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]],
        learning_rate: float, 
        loss_fn: Type[nn.MSELoss],
        optimizer: torch.optim.Adam) -> None:
-    """
-    Main training loop. 
-    """
-
     loss_fn = nn.MSELoss()
-
     optimizer.zero_grad()
     size = len(train_loader.dataset)
 
-    for batch, (x, y) in enumerate(train_loader): 
+    for batch, (x, y) in enumerate(train_loader):
+        # Ensure input has correct shape
+        if len(x.shape) == 2:
+            x = x.unsqueeze(1)
+            
         pred = model(x)
+        
+        # Ensure target has correct shape
+        if len(y.shape) == 1:
+            y = y.unsqueeze(1)
+            
         loss = loss_fn(pred, y)
         loss.backward()
         optimizer.step()
@@ -175,29 +192,25 @@ def train_loop(model: BaseModel,
             loss, current = loss.item(), batch * 32 + len(x)
             print(f"loss: {loss:>7f} [{current:>5d}/{size:>5d}]")
 
+
 def test_loop(model: BaseModel,
               test_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]],
               loss_fn: Type[nn.MSELoss]) -> None:
-    test_loss: float = 0
-    correct: float = 0
-
+    test_loss: float = 0.0
 
     model.eval()
-    size = len(test_loader.dataset)
     num_batches = len(test_loader)
 
-    # Evaluating the model with torch.no_grad() ensures that no gradients are computed during test mode
-    # also serves to reduce unnecessary gradient computations and memory usage for tensors with requires_grad=True
     with torch.no_grad():
-        for X, y in test_loader:
-            pred = model(X)
-            test_loss += loss_fn(pred, y).item()
-            correct += (pred.argmax(1) == y).type(torch.float).sum().item()
+        for x, y in test_loader:
+            pred = model(x)
+            loss = loss_fn(pred, y)
+            test_loss += loss.item()
 
     test_loss /= num_batches
-    correct /= size
-    print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
-    
+    print(f"Root MSE: {math.sqrt(test_loss):.6f}")
+
+
 
 
 if __name__ == '__main__':

@@ -9,7 +9,6 @@ from torch.utils.data import DataLoader, random_split
 import numpy as np
 from scipy.io import loadmat
 
-
 class NonPaddingDataset(Dataset):
     """
     Does not pad the dataset with zeroes, i.e. it start at the `lag_size`th entry (fewer entries in total)
@@ -17,33 +16,34 @@ class NonPaddingDataset(Dataset):
     i.e. with a lag size of 5, the first entry will be `x = [y_0,y_1,y_2,y_3,y_4], y = y_5`
     """
     def __init__(self, lag_size: int):
-        self.data = np.array(loadmat("data/Xtrain.mat")["Xtrain"])
+        self.data = np.array(loadmat("data/Xtrain.mat")["Xtrain"]).flatten()
         self.lag_size = lag_size
-
-    def __len__(self): 
-        return len(self.data)
-
+        
+    def __len__(self):
+        return len(self.data) - self.lag_size  # Only valid sequences
+    
     def __getitem__(self, idx: int):
-        # nth data point
-        target = self.data[idx+self.lag_size]
-        # (n - lagsize)th data point unttil (n-1)th data point
+        if idx >= len(self):
+            raise IndexError
         feature = self.data[idx : idx+self.lag_size]
+        target = self.data[idx+self.lag_size]
+        return feature.astype(np.float32), target.astype(np.float32)
 
-        return feature, target
 
-
-class PaddingDataset(NonPaddingDataset):
+class PaddingDataset(NonPaddingDataset): 
     """
     Pads the start of the dataset with a number of zeroes equal to the lag parameter. 
 
     i.e. with a lag size of 5, the first entry will be `x = [0,0,0,0,0], y = y_0`
 
-    """
-
+    """ 
     def __init__(self, lag_size: int):
-        super().__init__(lag_size)
-        # Pad dataset with zeroes
-        self.data = np.append(np.zeros(lag_size), self.data)
+        raw_data = np.array(loadmat("data/Xtrain.mat")["Xtrain"]).flatten()
+        self.data = np.concatenate([np.zeros(lag_size), raw_data])
+        self.lag_size = lag_size
+        
+    def __len__(self):
+        return len(self.data) - self.lag_size  # Same calculation but includes padding
 
 def create_datasets_and_loaders(lag_size: int, test_ratio: float = 0.2, batch_size: int = 32, seed: int = 42):
     """
@@ -59,28 +59,29 @@ def create_datasets_and_loaders(lag_size: int, test_ratio: float = 0.2, batch_si
         Tuple of (padding_train_loader, padding_test_loader, 
                  nonpadding_train_loader, nonpadding_test_loader)
     """
-    # determine dataset size
     raw_data = np.array(loadmat("data/Xtrain.mat")["Xtrain"]).flatten()
     n_total = len(raw_data)
     
-    # determine split points
-    test_size = int(n_total * test_ratio)
-    train_size = n_total - test_size
- 
+    # Create datasets
     padding_ds = PaddingDataset(lag_size)
     nonpadding_ds = NonPaddingDataset(lag_size)
     
-    # Create splits that maximize alignment
-    # Padding dataset has `lag_size` more points 
+    # Calculate split sizes
+    test_size = int(n_total * test_ratio)
+    train_size = n_total - test_size
+    
+    # Padding dataset splits (same as original data)
     padding_train_size = train_size
-    padding_test_size = len(padding_ds) - padding_train_size
+    padding_test_size = test_size
     
-    nonpadding_train_size = train_size - lag_size 
-    nonpadding_test_size = len(nonpadding_ds) - nonpadding_train_size
-    
-    # Split datasets
+    # Non-padding dataset splits
+    nonpadding_total = len(nonpadding_ds)  # This equals n_total - lag_size
+    nonpadding_test_size = test_size
+    nonpadding_train_size = nonpadding_total - nonpadding_test_size
+
+    # Create splits
     padding_train, padding_test = random_split(
-        padding_ds, 
+        padding_ds,
         [padding_train_size, padding_test_size],
         generator=torch.Generator().manual_seed(seed)
     )
@@ -88,7 +89,8 @@ def create_datasets_and_loaders(lag_size: int, test_ratio: float = 0.2, batch_si
     nonpadding_train, nonpadding_test = random_split(
         nonpadding_ds,
         [nonpadding_train_size, nonpadding_test_size],
-        generator=torch.Generator().manual_seed(seed))
+        generator=torch.Generator().manual_seed(seed)
+    )
     
     # Create DataLoaders
     loaders = (
@@ -99,6 +101,7 @@ def create_datasets_and_loaders(lag_size: int, test_ratio: float = 0.2, batch_si
     )
     
     return loaders
+
 
 if __name__ == "__main__":
     ds = PaddingDataset(3)
