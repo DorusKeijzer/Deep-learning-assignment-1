@@ -5,9 +5,10 @@ class MostRecentBaseline(BaseModel):
     """
     Baseline model that returns the most recent entry in the feature.
     """
+    @property
     def name(self):
         return "Most Recent Baseline"
-
+    
     def forward(self, x):
         return x[:,-1]
 
@@ -15,6 +16,7 @@ class MeanBaseline(BaseModel):
     """
     Baseline model that returns the mean of the feature.
     """
+    @property
     def name(self):
         return "Mean Baseline"
     

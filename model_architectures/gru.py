@@ -22,7 +22,7 @@ class GRUModel(BaseModel):
 
     @property
     def name(self) -> str:
-        return "GRU" 
+        return f"GRU, hidden_dimensions: {self.hidden_dim}, number of layers: {self.num_layers}" 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Initialize hidden state
