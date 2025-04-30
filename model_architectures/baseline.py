@@ -1,5 +1,5 @@
 import torch
-from base_model import BaseModel
+from model_architectures.base_model import BaseModel
 
 class MostRecentBaseline(BaseModel):
     """

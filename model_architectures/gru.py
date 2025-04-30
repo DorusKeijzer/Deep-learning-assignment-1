@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from base_model import BaseModel
+from model_architectures.base_model import BaseModel
 
 
 class GRUModel(BaseModel):

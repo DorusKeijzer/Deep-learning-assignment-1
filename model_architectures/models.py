@@ -1,5 +1,5 @@
-from baseline import MostRecentBaseline, MeanBaseline
-from gru import GRUModel
+from model_architectures.baseline import MostRecentBaseline, MeanBaseline
+from model_architectures.gru import GRUModel
 
 baselines = [MostRecentBaseline(), MeanBaseline()]
 
