@@ -22,7 +22,7 @@ class PaddingDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx: int):
-        target = self.data[idx+1+self.lag_size]
+        target = self.data[idx+self.lag_size]
         feature = self.data[idx: idx+self.lag_size]
 
         return feature, target
