@@ -5,6 +5,8 @@ class BaseModel(torch.nn.Module, ABC):
     """Abstract base class requiring a 'name' property and forward().""" 
     def __init__(self):
         super().__init__() 
+        self.is_baseline = False
+
 
     @property
     @abstractmethod

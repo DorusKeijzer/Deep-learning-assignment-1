@@ -3,11 +3,15 @@ from model_architectures.base_model import BaseModel
 
 class MostRecentBaseline(BaseModel):
     """
-    Baseline model that returns the most recent entry in the feature.
+    baseline model that returns the most recent entry in the feature.
     """
+    def __init__(self):
+        super().__init__()
+        self.is_baseline = True # true for baseline models only
+
     @property
     def name(self):
-        return "Most Recent Baseline"
+        return "most recent baseline"
     
     def forward(self, x):
         return x[:,-1]
@@ -16,6 +20,10 @@ class MeanBaseline(BaseModel):
     """
     Baseline model that returns the mean of the feature.
     """
+    def __init__(self):
+        super().__init__()
+        self.is_baseline = True # true for baseline models only
+
     @property
     def name(self):
         return "Mean Baseline"
