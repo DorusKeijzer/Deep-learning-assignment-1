@@ -13,8 +13,8 @@ i.e. with a lag size of 5, the first entry will be x = [0,0,0,0,0] y = y_0
 
 """
 class PaddingDataset(Dataset):
-    def __init__(self, file_path: str, lag_size: int):
-        self.data = np.array(loadmat(file_path)["Xtrain"])
+    def __init__(self, lag_size: int):
+        self.data = np.array(loadmat("data/Xtrain.mat")["Xtrain"])
         self.data = np.append(np.zeros(lag_size), self.data)
         self.lag_size = lag_size
 
@@ -28,8 +28,8 @@ class PaddingDataset(Dataset):
         return feature, target
 
 if __name__ == "__main__":
-    ds = PaddingDataset("data/Xtrain.mat", 3)
+    ds = PaddingDataset(3)
     for i, d in ds:
         print(i, d)
 
-
+"data/Xtrain.mat"
