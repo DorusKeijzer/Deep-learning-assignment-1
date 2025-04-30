@@ -5,8 +5,8 @@ class MostRecentBaseline(BaseModel):
     """
     baseline model that returns the most recent entry in the feature.
     """
-    def __init__(self):
-        super().__init__()
+    def __init__(self, input_size):
+        super().__init__(input_size)
         self.is_baseline = True # true for baseline models only
 
     @property
@@ -20,8 +20,8 @@ class MeanBaseline(BaseModel):
     """
     Baseline model that returns the mean of the feature.
     """
-    def __init__(self):
-        super().__init__()
+    def __init__(self, input_size):
+        super().__init__(input_size)
         self.is_baseline = True # true for baseline models only
 
     @property

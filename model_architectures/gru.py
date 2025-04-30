@@ -4,14 +4,14 @@ from model_architectures.base_model import BaseModel
 
 
 class GRUModel(BaseModel):
-    def __init__(self, input_dim: int, hidden_dim: int, num_layers: int = 1):
-        super().__init__()
+    def __init__(self, input_size: int, hidden_dim: int, num_layers: int = 1):
+        super().__init__(input_size)
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
         
         # GRU layer
         self.gru = nn.GRU(
-            input_size=input_dim,
+            input_size=input_size,
             hidden_size=hidden_dim,
             num_layers=num_layers,
             batch_first=True
@@ -22,7 +22,7 @@ class GRUModel(BaseModel):
 
     @property
     def name(self) -> str:
-        return f"GRU, hidden_dimensions: {self.hidden_dim}, number of layers: {self.num_layers}" 
+        return f"GRU, hidden dimensions: {self.hidden_dim}, number of layers: {self.num_layers}" 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Initialize hidden state
