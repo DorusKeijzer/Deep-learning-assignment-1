@@ -1,1 +1,3 @@
-models = [] # once we have different models, this should store every model
+from baseline import MostRecentBaseline, MeanBaseline
+
+models = [MostRecentBaseline, MeanBaseline] # populate this with our models  
