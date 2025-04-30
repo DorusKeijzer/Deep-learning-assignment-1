@@ -24,8 +24,8 @@ from torch import nn
 # loss function is MSE everywhere
 LOSS_FUNC = nn.MSELoss()
 
-# Generalized model creation function that works with hyperparameter dictionaries
 def create_model(lag_param: int, model_class, params: Dict[str, Any]):
+    """creates a model suitable to the current input sise of the specified class using the specified parameter"""
     params["input_size"] = lag_param
     
     # Instantiate the model using parameters in the dictionary
@@ -145,57 +145,95 @@ def main(models: List[str],
                 print(f"Training and evaluating model: {model.name} on dataset: {dataset}")
 
                 train(model,train_loader, test_loader, learning_rate, epochs, LOSS_FUNC, optimizer)
-                
+
 def train(model: BaseModel,
-          train_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]], 
-          test_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]], 
-          learning_rate: float, 
-          epochs: int,
-          loss_fn: Type[nn.MSELoss],
-          optimizer: torch.optim.Adam) -> None:
+         train_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]], 
+         test_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]], 
+         learning_rate: float, 
+         epochs: int,
+         loss_fn: Type[nn.MSELoss],
+         optimizer: torch.optim.Adam,
+         no_early_stopping: bool = False) -> None:
 
-    if not model.is_baseline: # non baseline models need training
+    if not model.is_baseline:  # non baseline models need training
+        # Early stopping parameters
+        patience = 5
+        min_delta = 0.001
+        best_loss = float('inf')
+        epochs_without_improvement = 0
+        
         for epoch in range(epochs): 
-            print(f"Epoch {epoch+1}\n-------------------------------")
+            print(f"\nEpoch {epoch+1}/{epochs}")
+            print("-------------------------------")
+            
+            # Training phase
             train_loop(model, train_loader, learning_rate, loss_fn, optimizer)
-            test_loop(model, test_loader, loss_fn)
-
-    else: # baseline models only need to be evaluated
+            
+            # Validation phase
+            current_loss = test_loop(model, test_loader, loss_fn, return_loss=True)
+            
+            # Early stopping logic
+            if not no_early_stopping:
+                if current_loss < best_loss - min_delta:
+                    best_loss = current_loss
+                    epochs_without_improvement = 0
+                    # Optional: save best model
+                    # torch.save(model.state_dict(), 'best_model.pth')
+                else:
+                    epochs_without_improvement += 1
+                    if epochs_without_improvement >= patience:
+                        print(f"\nEarly stopping at epoch {epoch+1}")
+                        print(f"Validation loss didn't improve for {patience} epochs.")
+                        break
+    else:  # baseline models only need to be evaluated
         test_loop(model, test_loader, loss_fn)
-
 def train_loop(model: BaseModel,
-       train_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]],
-       learning_rate: float, 
-       loss_fn: Type[nn.MSELoss],
-       optimizer: torch.optim.Adam) -> None:
-    loss_fn = nn.MSELoss()
-    optimizer.zero_grad()
-    size = len(train_loader.dataset)
-
+              train_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]],
+              learning_rate: float, 
+              loss_fn: Type[nn.MSELoss],
+              optimizer: torch.optim.Adam) -> None:
+    model.train()  # Set model to training mode
+    total_loss = 0.0
+    total_samples = 0
+    
     for batch, (x, y) in enumerate(train_loader):
         # Ensure input has correct shape
         if len(x.shape) == 2:
             x = x.unsqueeze(1)
             
-        pred = model(x)
-        
         # Ensure target has correct shape
         if len(y.shape) == 1:
             y = y.unsqueeze(1)
             
+        # Forward pass
+        pred = model(x)
         loss = loss_fn(pred, y)
+        
+        # Backward pass and optimize
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        optimizer.zero_grad()
+        
+        # Track progress
+        total_loss += loss.item() * x.size(0)
+        total_samples += x.size(0)
+        
+        if batch % 5 == 0:
+            avg_loss = total_loss / total_samples if total_samples > 0 else 0
+            current = (batch + 1) * x.size(0)
+            size = len(train_loader.dataset)
+            print(f"loss: {avg_loss:>7f} [{current:>5d}/{size:>5d}]")
+    
+    # Print epoch summary
+    avg_epoch_loss = total_loss / total_samples
+    print(f"Epoch complete - average loss: {avg_epoch_loss:.6f}")
 
-        if batch % 50 == 0:
-            loss, current = loss.item(), batch * 32 + len(x)
-            print(f"loss: {loss:>7f} [{current:>5d}/{size:>5d}]")
 
 
 def test_loop(model: BaseModel,
               test_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]],
-              loss_fn: Type[nn.MSELoss]) -> None:
+              loss_fn: Type[nn.MSELoss],
+              return_loss: bool = False) -> float:
     test_loss: float = 0.0
 
     model.eval()
@@ -203,19 +241,26 @@ def test_loop(model: BaseModel,
 
     with torch.no_grad():
         for x, y in test_loader:
+            # Ensure input has correct shape
+            if len(x.shape) == 2:
+                x = x.unsqueeze(1)
             pred = model(x)
+            
+            # Ensure target has correct shape
+            if len(y.shape) == 1:
+                y = y.unsqueeze(1)
+                
             loss = loss_fn(pred, y)
             test_loss += loss.item()
 
     test_loss /= num_batches
-    print(f"Root MSE: {math.sqrt(test_loss):.6f}")
-
-
+    rmse = math.sqrt(test_loss)
+    print(f"Root MSE: {rmse:.6f}")
+    
+    if return_loss:
+        return test_loss  
+    return rmse
 
 
 if __name__ == '__main__':
     main()
-
-
-
-
