@@ -1,0 +1,4 @@
+# .gitignore
+results/**/*.pt
+results/**/*.pth
+results/**/*.h5
