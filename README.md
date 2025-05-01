@@ -20,6 +20,7 @@ Args:
 - `epochs`: Number of training epochs. Default is 100.
 - `learning_rate`: Learning rate for training. Default is 1e-3.
 - `no_early_stopping`: If True, runs all epochs without early stopping. If False (default), may stop early based on validation performance.
+- `no_show`: If True, does not show  plots between runs
 
 Notes:
   - Multiple models, lag parameters, and datasets can be specified by repeating the flags

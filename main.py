@@ -30,6 +30,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+dont_show_plots = False
+
+
 class Tee:
     """Duplicate output to both console and log file"""
     def __init__(self, *files):
@@ -91,13 +94,20 @@ def create_model(lag_param: int, model_class, params: Dict[str, Any]):
               show_default=True,
               help="If set to True, finishes all specified epochs, else stops early"
               )
+@click.option('--no_show', '-n',
+              is_flag=True,
+              default=False,
+              show_default=True,
+              help="If set to True, does not show plots during runs"
+              )
 
 def main(models: List[str],
          lag_params: List[int], 
          datasets: List[str], 
          epochs: int,
          learning_rate: float,
-         no_early_stopping: bool) -> None:          
+         no_early_stopping: bool,
+         no_show: bool,) -> None:          
 
     """
     Train and evaluate models with different lag parameters on specified datasets.
@@ -112,6 +122,7 @@ def main(models: List[str],
         learning_rate: Learning rate for training. Default is 1e-3.
         no_early_stopping: If True, runs all epochs without early stopping.
                           If False (default), may stop early based on validation performance.
+        no_show: if True, do not show plots between training runs (saves manual clicking). 
 
     Notes:
         - Multiple models, lag parameters, and datasets can be specified by repeating the flags
@@ -130,6 +141,8 @@ def main(models: List[str],
         # Train all models with default parameters
         python main.py
     """
+
+    show_plots = not no_show
 
     # creating save locations
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -204,7 +217,7 @@ def main(models: List[str],
                         optimizer = None
                     print(f"Training and evaluating model: {model.name} {model.model_parameters} on dataset: {dataset}")
 
-                    train(model,train_loader, test_loader, learning_rate, epochs, LOSS_FUNC, optimizer, dataset, lag_param, plots_dir, weights_dir)
+                    train(model,train_loader, test_loader, learning_rate, epochs, LOSS_FUNC, optimizer, dataset, lag_param, plots_dir, weights_dir, show_plots)
 
     finally:
         # Restore original output streams
@@ -213,48 +226,66 @@ def main(models: List[str],
         log_file.close()        
 
 
+
 def plot_losses(avg_train_losses: List[float], 
                 avg_val_losses: List[float], 
                 model: BaseModel,
                 dataset: str,
                 run_name: str,
                 lag: int,
-                plots_dir: str):
+                plots_dir: str,
+                show_plots: bool):
     
-    fig, ax = plt.subplots()
+    # Create larger figure with adjusted aspect ratio
+    fig, ax = plt.subplots(figsize=(12, 8))  # Width: 12", Height: 8"
     
-    # Plot loss curves
-    ax.plot(range(len(avg_train_losses)), avg_train_losses, label="Train")
-    ax.plot(range(len(avg_val_losses)), avg_val_losses, label="Validation")
+    # Plot loss curves with thicker lines
+    ax.plot(range(len(avg_train_losses)), avg_train_losses, 
+            label="Train", linewidth=2)
+    ax.plot(range(len(avg_val_losses)), avg_val_losses, 
+            label="Validation", linewidth=2)
 
-    # Highlight minimum loss points
+    # Highlight minimum loss points with larger markers
     best_train_epoch = np.argmin(avg_train_losses)
     best_val_epoch = np.argmin(avg_val_losses)
 
-    ax.plot(best_train_epoch, avg_train_losses[best_train_epoch], 'o', color='blue', label='Best Train')
-    ax.plot(best_val_epoch, avg_val_losses[best_val_epoch], 'o', color='orange', label='Best Val')
+    ax.plot(best_train_epoch, avg_train_losses[best_train_epoch], 
+            'o', color='blue', markersize=8, label='Best Train')
+    ax.plot(best_val_epoch, avg_val_losses[best_val_epoch], 
+            'o', color='orange', markersize=8, label='Best Val')
 
-    ax.set_ylabel("MSE Loss")
-    ax.set_xlabel("Epoch")
-    ax.set_title(f"Training curve of {model.name} on the {dataset.lower()} dataset with a lag parameter of {lag}:")
-    ax.legend()
+    # Increase font sizes
+    ax.set_ylabel("MSE Loss", fontsize=12)
+    ax.set_xlabel("Epoch", fontsize=12)
+    ax.set_title(f"Training curve of {model.name} on {dataset.lower()} dataset (lag={lag})", 
+                fontsize=14, pad=20)
+    ax.legend(fontsize=10)
+    ax.tick_params(axis='both', which='major', labelsize=10)
 
-    # Add detailed info text below the plot
+    # Text box formatting
     fig.text(
         0.1, 0.01, 
         r"$\bf{Model\ name}$" + f": {model.name}\n"
-        r"$\bf{lag\ parameter}$" + f": {lag}\n"
+        r"$\bf{Lag}$" + f": {lag}\n"
         r"$\bf{Parameters}$" + f": {model.model_parameters}\n"
         r"$\bf{Run}$" + f": {run_name}\n"
-        r"$\bf{Min\ Train\ Loss}$" + f": {avg_train_losses[best_train_epoch]:.2f} in epoch {best_train_epoch}\n"
-        r"$\bf{Min\ Val\ Loss}$" + f": {avg_val_losses[best_val_epoch]:.2f} in epoch {best_val_epoch}\n",
-        ha='left', fontsize=9
+        r"$\bf{Min\ Train\ Loss}$" + f": {avg_train_losses[best_train_epoch]:.2f} (epoch {best_train_epoch})\n"
+        r"$\bf{Min\ Val\ Loss}$" + f": {avg_val_losses[best_val_epoch]:.2f} (epoch {best_val_epoch})\n",
+        ha='left', 
+        fontsize=10,
+        bbox=dict(facecolor='white', alpha=0.8, edgecolor='lightgray')
     )
 
-    fig.subplots_adjust(bottom=0.30)
-    plt.show()
-    save_location = os.path.join(plots_dir, run_name)
-    plt.savefig(save_location)
+    # Adjust layout to prevent overlap
+    plt.tight_layout()
+    fig.subplots_adjust(bottom=0.25)  # More space for text box
+
+    if show_plots:
+        plt.show()
+        
+    save_location = os.path.join(plots_dir, f"{run_name}.png")
+    plt.savefig(save_location, bbox_inches='tight', dpi=300)  # High-res save
+    plt.close(fig)  # Important: prevent memory leaks
 
 
 
@@ -274,6 +305,7 @@ def train(model: BaseModel,
            lag: int,
           plots_dir: str,
           weights_dir: str,
+          show_plots: bool,
          no_early_stopping: bool = False,) -> None:
 
 
@@ -326,7 +358,7 @@ def train(model: BaseModel,
         print(f"lowest validation loss: {np.min(avg_val_losses)} in epoch {np.argmin(avg_val_losses)}")
         print(f"lowest training loss: {np.min(avg_train_losses)} in epoch {np.argmin(avg_train_losses)}")
 
-        plot_losses(avg_train_losses, avg_val_losses, model, dataset, run_name, lag, plots_dir)
+        plot_losses(avg_train_losses, avg_val_losses, model, dataset, run_name, lag, plots_dir, show_plots)
         save_loacation = os.path.join(weights_dir, run_name)
         torch.save(lowest_val_loss_model, save_loacation)
 
