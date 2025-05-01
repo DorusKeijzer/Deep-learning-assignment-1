@@ -4,6 +4,11 @@ from model_architectures.base_model import BaseModel
 
 
 class GRUModel(BaseModel):
+    """
+    parameters: 
+    - hidden_dim: dimension of the hidden layers
+    - num_layers: number of layers
+    """
     def __init__(self, input_size: int, hidden_dim: int, num_layers: int = 1):
         super().__init__(input_size)
         self.hidden_dim = hidden_dim

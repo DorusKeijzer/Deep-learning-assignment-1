@@ -7,7 +7,7 @@ from torchvision.utils import math
 from model_architectures import baseline
 from utils.dataloader import create_datasets_and_loaders
 from model_architectures.models import models as ALL_MODELS
-from model_architectures.models import baselines, GRUs # LSTMs, etc.
+from model_architectures.models import baselines, GRUs, OneDCNNs # LSTMs, etc.
 from model_architectures.base_model import BaseModel
 import click
 import torch
@@ -38,7 +38,7 @@ def create_model(lag_param: int, model_class, params: Dict[str, Any]):
 @click.command()
 @click.option('--models', '-m', 
               multiple=True,
-              type=click.Choice(['LSTM', 'GRU', 'TCN', 'Transformer'], case_sensitive=False),
+              type=click.Choice(['LSTM', 'GRU', '1DCNN'], case_sensitive=False),
               help='Model names to train (can specify multiple)')
 @click.option('--lag_params', '-l',
               multiple=True,
@@ -106,8 +106,10 @@ def main(models: List[str],
         # Train all models with default parameters
         python main.py
     """
-    models_to_evaluate: List[Tuple[BaseModel, Dict[str, Any]]] = []  
+    models_to_evaluate: List[Tuple[Callable, Dict[str, Any]]] = []  
 
+    if "1DCNN" in models:
+        models_to_evaluate.extend(OneDCNNs)
     if "GRU" in models:
         models_to_evaluate.extend(GRUs)
     if "baselines" in models:
@@ -187,6 +189,7 @@ def train(model: BaseModel,
                         break
     else:  # baseline models only need to be evaluated
         test_loop(model, test_loader, loss_fn)
+
 def train_loop(model: BaseModel,
               train_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]],
               learning_rate: float, 
