@@ -20,7 +20,7 @@ The variable `models` should contain all models.
 ## base_model.py
 Contains a base model class that all models should implement in order to make them run smoothly in the training loop.
 
-To implement the base model you need to define the `forward()` and `name()` methods. Name method should use the `@property` decorator and return a name that differentiates the model from other models and instances of the same model as to account for all possible hyperparameters of the model (except input size as that can be deduced from the lag parameter), e.g. `GRU model, hidden dimensions: 5, number of layers: 32"`, etc.
+To implement the base model you need to define the `forward()`, `name()` and `model_parameters()` methods. The `name()` method should use the `@property` decorator and return the name of the model class (i.e. "LSTM", "GRU"). The `model_parameters()` method should also use the `@property` decorator and return all the hyperparameters differentiate an instance of this model from other instances (except input size as that can be deduced from the lag parameter), e.g. for a GRU model: `hidden dimensions: 5, number of layers: 32"`, etc.
 
 Finally: the base model takes `input_size` as a parameter, and so should models that inherit from this base class. This input size will correspond to the lag parameter during the training run.
 

@@ -123,7 +123,8 @@ def main(models: List[str],
     for model_class, params in models_to_evaluate:
         # create temporary model to print model
         temporary_model = create_model(1,model_class, params)
-        print(f"\t{temporary_model.name}")
+        print(f"\t{temporary_model.name}:")
+        print(f"\t  {temporary_model.parameters}")
     click.echo(f"Using lag parameters: {', '.join(map(str, lag_params))}")
     click.echo(f"On datasets: {', '.join(map(str, datasets))}")
     click.echo(f"For {epochs} epochs, with {'no ' if no_early_stopping else ''}early stopping.")
@@ -144,7 +145,7 @@ def main(models: List[str],
                     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
                 else: 
                     optimizer = None
-                print(f"Training and evaluating model: {model.name} on dataset: {dataset}")
+                print(f"Training and evaluating model: {model.name} {model.parameters} on dataset: {dataset}")
 
                 train(model,train_loader, test_loader, learning_rate, epochs, LOSS_FUNC, optimizer)
 

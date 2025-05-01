@@ -10,7 +10,11 @@ class BaseModel(torch.nn.Module, ABC):
         self.input_size = input_size
         self.is_baseline = False
 
-
+    @property
+    @abstractmethod
+    def model_parameters(self) -> str:
+        """Mandatory property: Model parameters (must be implemented by child classes)."""
+        pass
     @property
     @abstractmethod
     def name(self) -> str:

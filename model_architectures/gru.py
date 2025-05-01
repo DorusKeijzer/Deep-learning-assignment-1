@@ -27,7 +27,12 @@ class GRUModel(BaseModel):
 
     @property
     def name(self) -> str:
-        return f"GRU, hidden dimensions: {self.hidden_dim}, number of layers: {self.num_layers}" 
+        return f"GRU"
+ 
+    @property
+    def model_parameters(self) -> str:
+        return f"hidden dimensions: {self.hidden_dim}, number of layers: {self.num_layers}" 
+
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Ensure input has shape [batch_size, seq_len, input_size]

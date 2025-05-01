@@ -10,6 +10,10 @@ class MostRecentBaseline(BaseModel):
         self.is_baseline = True # true for baseline models only
 
     @property
+    def model_parameters(self):
+        return "" 
+
+    @property
     def name(self):
         return "most recent baseline"
     
@@ -23,7 +27,10 @@ class MeanBaseline(BaseModel):
     def __init__(self, input_size):
         super().__init__(input_size)
         self.is_baseline = True # true for baseline models only
-
+    @property
+    def model_parameters(self):
+        return ""
+   
     @property
     def name(self):
         return "Mean Baseline"

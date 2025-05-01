@@ -98,10 +98,14 @@ class CNN1DModel(BaseModel):
         return (kernel_size - 1) * dilation // 2
 
     @property
-    def name(self) -> str:
-        return (f"1D CNN, channels: {self.num_channels}, "
+    def model_parameters(self) -> str:
+        return (f"channels: {self.num_channels}, "
                 f"kernels: {self.kernel_sizes}, "
                 f"pooling: {self.pooling}")
+
+    @property
+    def name(self) -> str:
+        return "1D CNN"
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Input shaping
