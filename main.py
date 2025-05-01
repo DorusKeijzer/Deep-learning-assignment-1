@@ -1,5 +1,6 @@
 from collections.abc import Callable
 import re
+import sys
 from datetime import datetime
 
 from scipy.io._fast_matrix_market import os
@@ -27,6 +28,24 @@ from torch.utils.data import DataLoader
 from torch import nn
 import matplotlib.pyplot as plt
 import numpy as np
+
+
+class Tee:
+    """Duplicate output to both console and log file"""
+    def __init__(self, *files):
+        self.files = files
+        
+    def write(self, text):
+        for file in self.files:
+            file.write(text)
+            file.flush()  # Immediate flush for real-time logging
+            
+    def flush(self):
+        for file in self.files:
+            if hasattr(file, 'flush'):
+                file.flush()
+
+
 
 # loss function is MSE everywhere
 LOSS_FUNC = nn.MSELoss()
@@ -127,51 +146,71 @@ def main(models: List[str],
 
     print(f"Saving results to: {results_dir}")
 
+    print(f"Saving results to: {results_dir}")
+
+    # Set up logging to file
+    log_path = os.path.join(results_dir, 'run.log')
+    log_file = open(log_path, 'w')
+    
+    # Save original stdout/stderr
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    
+    # Redirect all output to logging file as well
+    sys.stdout = Tee(sys.stdout, log_file)
+    sys.stderr = Tee(sys.stderr, log_file)
+
+    try:
 
 
+        models_to_evaluate: List[Tuple[Callable, Dict[str, Any]]] = []  
 
-    models_to_evaluate: List[Tuple[Callable, Dict[str, Any]]] = []  
+        if "1DCNN" in models:
+            models_to_evaluate.extend(OneDCNNs)
+        if "GRU" in models:
+            models_to_evaluate.extend(GRUs)
+        if "baselines" in models:
+            models_to_evaluate.extend(baselines)
+        # etc. TODO: add when available
 
-    if "1DCNN" in models:
-        models_to_evaluate.extend(OneDCNNs)
-    if "GRU" in models:
-        models_to_evaluate.extend(GRUs)
-    if "baselines" in models:
-        models_to_evaluate.extend(baselines)
-    # etc. TODO: add when available
+        if len(models_to_evaluate) == 0:
+            models_to_evaluate = ALL_MODELS
 
-    if len(models_to_evaluate) == 0:
-        models_to_evaluate = ALL_MODELS
+        click.echo(f"Training models:")
+        for model_class, params in models_to_evaluate:
+            # create temporary model to print model
+            temporary_model = create_model(1,model_class, params)
+            print(f"\t{temporary_model.name}:")
+            print(f"\t  {temporary_model.parameters}")
+        click.echo(f"Using lag parameters: {', '.join(map(str, lag_params))}")
+        click.echo(f"On datasets: {', '.join(map(str, datasets))}")
+        click.echo(f"For {epochs} epochs, with {'no ' if no_early_stopping else ''}early stopping.")
 
-    click.echo(f"Training models:")
-    for model_class, params in models_to_evaluate:
-        # create temporary model to print model
-        temporary_model = create_model(1,model_class, params)
-        print(f"\t{temporary_model.name}:")
-        print(f"\t  {temporary_model.parameters}")
-    click.echo(f"Using lag parameters: {', '.join(map(str, lag_params))}")
-    click.echo(f"On datasets: {', '.join(map(str, datasets))}")
-    click.echo(f"For {epochs} epochs, with {'no ' if no_early_stopping else ''}early stopping.")
+        for model_class, params in models_to_evaluate:
 
-    for model_class, params in models_to_evaluate:
+            for lag_param in lag_params:
+                for dataset in datasets:
+                    padding_train_loader, padding_test_loader, nonpadding_train_loader, nonpadding_test_loader = create_datasets_and_loaders(lag_param)
+                    if dataset == "Non-padding":
+                        test_loader, train_loader = nonpadding_test_loader, nonpadding_train_loader
+                    elif dataset == "Padding":
+                        test_loader, train_loader = padding_test_loader,    padding_train_loader
+                    else:
+                        raise Exception(f"'{dataset}' is not a valid dataset. Dataset can only be 'Padding' or 'Non-padding'")
+                    model = create_model(lag_param, model_class, params)
+                    if not model.is_baseline:
+                        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+                    else: 
+                        optimizer = None
+                    print(f"Training and evaluating model: {model.name} {model.model_parameters} on dataset: {dataset}")
 
-        for lag_param in lag_params:
-            for dataset in datasets:
-                padding_train_loader, padding_test_loader, nonpadding_train_loader, nonpadding_test_loader = create_datasets_and_loaders(lag_param)
-                if dataset == "Non-padding":
-                    test_loader, train_loader = nonpadding_test_loader, nonpadding_train_loader
-                elif dataset == "Padding":
-                    test_loader, train_loader = padding_test_loader,    padding_train_loader
-                else:
-                    raise Exception(f"'{dataset}' is not a valid dataset. Dataset can only be 'Padding' or 'Non-padding'")
-                model = create_model(lag_param, model_class, params)
-                if not model.is_baseline:
-                    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-                else: 
-                    optimizer = None
-                print(f"Training and evaluating model: {model.name} {model.model_parameters} on dataset: {dataset}")
+                    train(model,train_loader, test_loader, learning_rate, epochs, LOSS_FUNC, optimizer, dataset, lag_param, plots_dir, weights_dir)
 
-                train(model,train_loader, test_loader, learning_rate, epochs, LOSS_FUNC, optimizer, dataset, lag_param, plots_dir, weights_dir)
+    finally:
+        # Restore original output streams
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+        log_file.close()        
 
 
 def plot_losses(avg_train_losses: List[float], 
