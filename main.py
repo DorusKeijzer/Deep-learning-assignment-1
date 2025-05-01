@@ -1,6 +1,8 @@
 from collections.abc import Callable
 import re
 from datetime import datetime
+
+from scipy.io._fast_matrix_market import os
 from model_architectures.gru import GRUModel
 from model_architectures.baseline import MostRecentBaseline, MeanBaseline
 from torch.nn.modules import MSELoss
@@ -70,6 +72,7 @@ def create_model(lag_param: int, model_class, params: Dict[str, Any]):
               show_default=True,
               help="If set to True, finishes all specified epochs, else stops early"
               )
+
 def main(models: List[str],
          lag_params: List[int], 
          datasets: List[str], 
@@ -108,6 +111,25 @@ def main(models: List[str],
         # Train all models with default parameters
         python main.py
     """
+
+    # creating save locations
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", timestamp)
+
+
+    os.makedirs(results_dir, exist_ok=True)
+
+    plots_dir = os.path.join(results_dir, "plots")
+    weights_dir = os.path.join(results_dir, "weights")
+
+    os.makedirs(plots_dir, exist_ok=True)
+    os.makedirs(weights_dir, exist_ok=True)
+
+    print(f"Saving results to: {results_dir}")
+
+
+
+
     models_to_evaluate: List[Tuple[Callable, Dict[str, Any]]] = []  
 
     if "1DCNN" in models:
@@ -149,7 +171,7 @@ def main(models: List[str],
                     optimizer = None
                 print(f"Training and evaluating model: {model.name} {model.model_parameters} on dataset: {dataset}")
 
-                train(model,train_loader, test_loader, learning_rate, epochs, LOSS_FUNC, optimizer, dataset, lag_param)
+                train(model,train_loader, test_loader, learning_rate, epochs, LOSS_FUNC, optimizer, dataset, lag_param, plots_dir, weights_dir)
 
 
 def plot_losses(avg_train_losses: List[float], 
@@ -157,7 +179,8 @@ def plot_losses(avg_train_losses: List[float],
                 model: BaseModel,
                 dataset: str,
                 run_name: str,
-                lag: int):
+                lag: int,
+                plots_dir: str):
     
     fig, ax = plt.subplots()
     
@@ -191,6 +214,8 @@ def plot_losses(avg_train_losses: List[float],
 
     fig.subplots_adjust(bottom=0.30)
     plt.show()
+    save_location = os.path.join(plots_dir, run_name)
+    plt.savefig(save_location)
 
 
 
@@ -208,10 +233,12 @@ def train(model: BaseModel,
          optimizer: torch.optim.Adam,
          dataset: str,
            lag: int,
+          plots_dir: str,
+          weights_dir: str,
          no_early_stopping: bool = False,) -> None:
 
+
     run_name = generate_run_name(model)
-    print(f"Run: {run_name}")
 
     if not model.is_baseline:  # non baseline models need training
         # Early stopping parameters
@@ -223,6 +250,8 @@ def train(model: BaseModel,
         # to store average loss per epoch
         avg_train_losses = []
         avg_val_losses = []
+        lowest_val_loss = 10e32
+        lowest_val_loss_model = None
         
         for epoch in range(epochs): 
             print(f"\nEpoch {epoch+1}/{epochs}")
@@ -236,6 +265,10 @@ def train(model: BaseModel,
             current_loss = test_loop(model, test_loader, loss_fn, return_loss=True)
             
             avg_val_losses.append(current_loss)
+
+            if current_loss < lowest_val_loss:
+                lowest_val_loss_model = model.state_dict()
+
 
             # Early stopping logic
             if not no_early_stopping:
@@ -254,7 +287,10 @@ def train(model: BaseModel,
         print(f"lowest validation loss: {np.min(avg_val_losses)} in epoch {np.argmin(avg_val_losses)}")
         print(f"lowest training loss: {np.min(avg_train_losses)} in epoch {np.argmin(avg_train_losses)}")
 
-        plot_losses(avg_train_losses, avg_val_losses, model, dataset, run_name, lag)
+        plot_losses(avg_train_losses, avg_val_losses, model, dataset, run_name, lag, plots_dir)
+        save_loacation = os.path.join(weights_dir, run_name)
+        torch.save(lowest_val_loss_model, save_loacation)
+
     else:  # baseline models only need to be evaluated
         test_loop(model, test_loader, loss_fn)
 

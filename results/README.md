@@ -1,3 +1,3 @@
-`models` contains models weights
+Runs are stored as directories with a timestamp to differentiate them
 
-`evaluations` contains a summary of every run
+Each run contains a `plots` subdirectory containing timestamped plots and a `weights` directory containing model weights.

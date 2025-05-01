@@ -34,3 +34,6 @@ Contains baseline models to compare to as a sanity check:
 
 ## GRU.py
 https://en.wikipedia.org/wiki/Gated_recurrent_unit
+
+## 1D CNN:
+https://www.youtube.com/watch?v=nMkqWxMjWzg
