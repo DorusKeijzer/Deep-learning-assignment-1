@@ -1,4 +1,6 @@
 from collections.abc import Callable
+import re
+from datetime import datetime
 from model_architectures.gru import GRUModel
 from model_architectures.baseline import MostRecentBaseline, MeanBaseline
 from torch.nn.modules import MSELoss
@@ -14,12 +16,15 @@ import torch
 from torch import nn
 from typing import List, Tuple
     
+from datetime import datetime
 from sklearn.model_selection import train_test_split
 from typing import TypeVar
 from typing import List, Tuple, Type, Dict, Any
 import torch
 from torch.utils.data import DataLoader
 from torch import nn
+import matplotlib.pyplot as plt
+import numpy as np
 
 # loss function is MSE everywhere
 LOSS_FUNC = nn.MSELoss()
@@ -30,9 +35,6 @@ def create_model(lag_param: int, model_class, params: Dict[str, Any]):
     
     # Instantiate the model using parameters in the dictionary
     return model_class(**params)
-
-
-
 
 # argument parsing
 @click.command()
@@ -145,9 +147,57 @@ def main(models: List[str],
                     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
                 else: 
                     optimizer = None
-                print(f"Training and evaluating model: {model.name} {model.parameters} on dataset: {dataset}")
+                print(f"Training and evaluating model: {model.name} {model.model_parameters} on dataset: {dataset}")
 
-                train(model,train_loader, test_loader, learning_rate, epochs, LOSS_FUNC, optimizer)
+                train(model,train_loader, test_loader, learning_rate, epochs, LOSS_FUNC, optimizer, dataset, lag_param)
+
+
+def plot_losses(avg_train_losses: List[float], 
+                avg_val_losses: List[float], 
+                model: BaseModel,
+                dataset: str,
+                run_name: str,
+                lag: int):
+    
+    fig, ax = plt.subplots()
+    
+    # Plot loss curves
+    ax.plot(range(len(avg_train_losses)), avg_train_losses, label="Train")
+    ax.plot(range(len(avg_val_losses)), avg_val_losses, label="Validation")
+
+    # Highlight minimum loss points
+    best_train_epoch = np.argmin(avg_train_losses)
+    best_val_epoch = np.argmin(avg_val_losses)
+
+    ax.plot(best_train_epoch, avg_train_losses[best_train_epoch], 'o', color='blue', label='Best Train')
+    ax.plot(best_val_epoch, avg_val_losses[best_val_epoch], 'o', color='orange', label='Best Val')
+
+    ax.set_ylabel("MSE Loss")
+    ax.set_xlabel("Epoch")
+    ax.set_title(f"Training curve of {model.name} on the {dataset.lower()} dataset with a lag parameter of {lag}:")
+    ax.legend()
+
+    # Add detailed info text below the plot
+    fig.text(
+        0.1, 0.01, 
+        r"$\bf{Model\ name}$" + f": {model.name}\n"
+        r"$\bf{lag\ parameter}$" + f": {lag}\n"
+        r"$\bf{Parameters}$" + f": {model.model_parameters}\n"
+        r"$\bf{Run}$" + f": {run_name}\n"
+        r"$\bf{Min\ Train\ Loss}$" + f": {avg_train_losses[best_train_epoch]:.2f} in epoch {best_train_epoch}\n"
+        r"$\bf{Min\ Val\ Loss}$" + f": {avg_val_losses[best_val_epoch]:.2f} in epoch {best_val_epoch}\n",
+        ha='left', fontsize=9
+    )
+
+    fig.subplots_adjust(bottom=0.30)
+    plt.show()
+
+
+
+def generate_run_name(model: BaseModel):
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    name = f"{timestamp}_{model.name}_{model.model_parameters}"
+    return re.sub(r"\s+", "_", name)
 
 def train(model: BaseModel,
          train_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]], 
@@ -156,7 +206,12 @@ def train(model: BaseModel,
          epochs: int,
          loss_fn: Type[nn.MSELoss],
          optimizer: torch.optim.Adam,
-         no_early_stopping: bool = False) -> None:
+         dataset: str,
+           lag: int,
+         no_early_stopping: bool = False,) -> None:
+
+    run_name = generate_run_name(model)
+    print(f"Run: {run_name}")
 
     if not model.is_baseline:  # non baseline models need training
         # Early stopping parameters
@@ -164,17 +219,24 @@ def train(model: BaseModel,
         min_delta = 0.001
         best_loss = float('inf')
         epochs_without_improvement = 0
+
+        # to store average loss per epoch
+        avg_train_losses = []
+        avg_val_losses = []
         
         for epoch in range(epochs): 
             print(f"\nEpoch {epoch+1}/{epochs}")
             print("-------------------------------")
             
             # Training phase
-            train_loop(model, train_loader, learning_rate, loss_fn, optimizer)
+            avg_train_loss = train_loop(model, train_loader, learning_rate, loss_fn, optimizer)
+            avg_train_losses.append(avg_train_loss)
             
             # Validation phase
             current_loss = test_loop(model, test_loader, loss_fn, return_loss=True)
             
+            avg_val_losses.append(current_loss)
+
             # Early stopping logic
             if not no_early_stopping:
                 if current_loss < best_loss - min_delta:
@@ -188,6 +250,11 @@ def train(model: BaseModel,
                         print(f"\nEarly stopping at epoch {epoch+1}")
                         print(f"Validation loss didn't improve for {patience} epochs.")
                         break
+
+        print(f"lowest validation loss: {np.min(avg_val_losses)} in epoch {np.argmin(avg_val_losses)}")
+        print(f"lowest training loss: {np.min(avg_train_losses)} in epoch {np.argmin(avg_train_losses)}")
+
+        plot_losses(avg_train_losses, avg_val_losses, model, dataset, run_name, lag)
     else:  # baseline models only need to be evaluated
         test_loop(model, test_loader, loss_fn)
 
@@ -195,7 +262,7 @@ def train_loop(model: BaseModel,
               train_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]],
               learning_rate: float, 
               loss_fn: Type[nn.MSELoss],
-              optimizer: torch.optim.Adam) -> None:
+              optimizer: torch.optim.Adam) -> float:
     model.train()  # Set model to training mode
     total_loss = 0.0
     total_samples = 0
@@ -231,6 +298,7 @@ def train_loop(model: BaseModel,
     # Print epoch summary
     avg_epoch_loss = total_loss / total_samples
     print(f"Epoch complete - average loss: {avg_epoch_loss:.6f}")
+    return avg_epoch_loss
 
 
 
