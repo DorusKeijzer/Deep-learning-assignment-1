@@ -1,4 +1,9 @@
 # .gitignore
-results/**/*.pt
-results/**/*.pth
-results/**/*.h5
+
+# Ignore everything in report/results
+report/results/*
+
+# But keep these files and folders
+!report/results/.gitkeep
+!report/results/README.md
+

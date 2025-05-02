@@ -292,7 +292,7 @@ def plot_losses(avg_train_losses: List[float],
 def generate_run_name(model: BaseModel):
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     name = f"{timestamp}_{model.name}_{model.model_parameters}"
-    return re.sub(r"\s+", "_", name)
+    return re.sub(r":", "_", re.sub(r"\s+", "_", name))
 
 def train(model: BaseModel,
          train_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]], 
