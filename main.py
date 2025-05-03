@@ -12,7 +12,7 @@ from torchvision.utils import math
 from model_architectures import baseline
 from utils.dataloader import create_datasets_and_loaders
 from model_architectures.models import models as ALL_MODELS
-from model_architectures.models import baselines, GRUs, OneDCNNs # LSTMs, etc.
+from model_architectures.models import baselines, GRUs, OneDCNNs, TCNs # LSTMs, etc.
 from model_architectures.base_model import BaseModel
 import click
 import torch
@@ -64,7 +64,7 @@ def create_model(lag_param: int, model_class, params: Dict[str, Any]):
 @click.command()
 @click.option('--models', '-m', 
               multiple=True,
-              type=click.Choice(['LSTM', 'GRU', '1DCNN'], case_sensitive=False),
+              type=click.Choice(['LSTM', 'GRU', '1DCNN', 'TCN'], case_sensitive=False),
               help='Model names to train (can specify multiple)')
 @click.option('--lag_params', '-l',
               multiple=True,
@@ -184,6 +184,8 @@ def main(models: List[str],
             models_to_evaluate.extend(GRUs)
         if "baselines" in models:
             models_to_evaluate.extend(baselines)
+        if "TCN" in models:
+            models_to_evaluate.extend(TCNs)
         # etc. TODO: add when available
 
         if len(models_to_evaluate) == 0:
