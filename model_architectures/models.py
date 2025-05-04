@@ -2,6 +2,7 @@ from model_architectures.baseline import MostRecentBaseline, MeanBaseline
 from model_architectures.gru import GRUModel
 from model_architectures.one_dim_cnn import CNN1DModel
 from model_architectures.tcn import TCNModel
+from model_architectures.rnn import SimpleRNNModel
 
 baselines = [(MostRecentBaseline, {}),
              (MeanBaseline, {})]
@@ -24,6 +25,13 @@ TCNs = [
     (TCNModel, {"num_channels": [32, 32], "kernel_size": 3, "dropout": 0.2}),
     (TCNModel, {"num_channels": [64, 64], "kernel_size": 3, "dropout": 0.3}),
     (TCNModel, {"num_channels": [32, 64], "kernel_size": 5, "dropout": 0.2}),
+]
+
+RNNs = [
+    (SimpleRNNModel, {"hidden_dim": 32, "num_layers": 1}),
+    (SimpleRNNModel, {"hidden_dim": 32, "num_layers": 2}),
+    (SimpleRNNModel, {"hidden_dim": 64, "num_layers": 1}),
+    (SimpleRNNModel, {"hidden_dim": 64, "num_layers": 2}),
 ]
 
 
