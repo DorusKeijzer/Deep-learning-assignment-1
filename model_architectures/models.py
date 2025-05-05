@@ -3,6 +3,7 @@ from model_architectures.gru import GRUModel
 from model_architectures.one_dim_cnn import CNN1DModel
 from model_architectures.tcn import TCNModel
 from model_architectures.rnn import SimpleRNNModel
+from model_architectures.lstm import LSTMModel
 
 baselines = [(MostRecentBaseline, {}),
              (MeanBaseline, {})]
@@ -35,11 +36,16 @@ RNNs = [
 ]
 
 
-# LSTMs = ... 
+LSTMs = [
+    (LSTMModel, {"hidden_dim": 32, "num_layers": 1}),
+    (LSTMModel, {"hidden_dim": 32, "num_layers": 2}),
+    (LSTMModel, {"hidden_dim": 64, "num_layers": 1}),
+    (LSTMModel, {"hidden_dim": 64, "num_layers": 2}),
+]
 
 # ...
 
-models = baselines + GRUs + OneDCNNs + TCNs # + LSTMs
+models = baselines + GRUs + OneDCNNs + TCNs + LSTMs
 
 
 if __name__ == "__main__":
