@@ -1,4 +1,5 @@
 from collections import defaultdict
+import json
 from collections.abc import Callable
 import re
 import sys
@@ -161,7 +162,7 @@ def main(models: List[str],
     try:
         models_to_evaluate: List[Tuple[Callable, Dict[str, Any]]] = []  
         summary_results = []  # To store (mean_score, model_name, lag_param, dataset)
-
+        raw_results = []
 
         if "1DCNN" in models:
             models_to_evaluate.extend(OneDCNNs)
@@ -194,6 +195,9 @@ def main(models: List[str],
             scores = defaultdict(lambda: defaultdict(list))  # scores[dataset][lag] = [score1, score2, score3...]
 
 
+
+            scores_by_model_and_dataset = {}
+
             for lag_param in lag_params:
                 for dataset in datasets:
                     for run in range(runs):
@@ -205,90 +209,102 @@ def main(models: List[str],
                             test_loader, train_loader = padding_test_loader, padding_train_loader
                         else:
                             raise Exception(f"'{dataset}' is not a valid dataset. Dataset can only be 'Padding' or 'Non-padding'")
-                        
+
                         model = create_model(lag_param, model_class, params)
                         if not model.is_baseline:
                             optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
                         else:
                             optimizer = None
 
+                        model_key = f"{model.name}_{model.model_parameters}_{dataset}"
+                        if model_key not in scores_by_model_and_dataset:
+                            scores_by_model_and_dataset[model_key] = {}
+
                         print(f"Run {run+1}/{runs}: Training {model.name} on {dataset} with lag {lag_param}")
-                        score = train(model,
-                                      train_loader,
-                                      test_loader,
-                                      learning_rate,
-                                      epochs,
-                                      LOSS_FUNC,
-                                      optimizer,
-                                      dataset,
-                                      lag_param,
-                                      plots_dir,
-                                      weights_dir,
-                                      show_plots,
-                                      scaler)
+                        score = train(
+                            model, train_loader, test_loader,
+                            learning_rate, epochs, LOSS_FUNC,
+                            optimizer, dataset, lag_param,
+                            plots_dir, weights_dir, show_plots, scaler, params
+                        )
+
+                        test_run_result = {
+                            "model_name": model.name,
+                            "model_parameters": model.model_parameters,
+                            "dataset": dataset,
+                            "lag_param": lag_param,
+                            "run": run + 1,
+                            "score": float(score)
+                        }
+                        
+                        raw_results.append(test_run_result)
+
+
+
                         scores[dataset][lag_param].append(score)
 
+                        scores_by_model_and_dataset[model_key].setdefault(lag_param, []).append(score)
 
-
-                            # Only collect average after the final run for that config
                         if run == runs - 1:
                             mean_score = np.mean(scores[dataset][lag_param])
                             summary_results.append((mean_score, model.name, lag_param, dataset))
+                    fig, ax = plt.subplots(figsize=(12, 8)) 
 
+            for model_key, lag_scores_dict in scores_by_model_and_dataset.items():
+                lags_sorted = sorted(lag_scores_dict.keys())
+                avg_scores = [np.mean(lag_scores_dict[lag]) for lag in lags_sorted]
+                std_scores = [np.std(lag_scores_dict[lag]) for lag in lags_sorted]
 
+                fig, ax = plt.subplots(figsize=(12, 8))
+                ax.errorbar(lags_sorted, avg_scores, yerr=std_scores, capsize=5, linewidth=2, marker='o')
+                ax.set_xlabel("Lag Parameter", fontsize=12)
+                ax.set_ylabel("Average Score", fontsize=12)
+                ax.set_title(f"Lag Performance for {model_key}", fontsize=14, pad=20)
+                ax.grid(True)
+                ax.tick_params(axis='both', labelsize=10)
 
+                # Extract model name and dataset for summary
+                parts = model_key.split("_")
+                model_name = parts[0]
+                dataset_type = parts[-1]
+                param_str = "_".join(parts[1:-1])
 
+                summary_text = (
+                    r"$\bf{Model\ name}$" + f": {model_name}\n"
+                    r"$\bf{Parameters}$" + f": {param_str}\n"
+                    r"$\bf{Dataset}$" + f": {dataset_type}\n"
+                    r"$\bf{Lag\ Params}$" + f": {lags_sorted}"
+                )
+                fig.text(
+                    0.1, 0.01,
+                    summary_text,
+                    ha='left',
+                    fontsize=10,
+                    bbox=dict(facecolor='white', alpha=0.8, edgecolor='lightgray')
+                )
 
-        fig, ax = plt.subplots(figsize=(12, 8)) 
-
-        for dataset_type, dataset_scores in scores.items():
-            avg_scores = [np.mean(dataset_scores[lag]) for lag in lag_params]
-            std_scores = [np.std(dataset_scores[lag]) for lag in lag_params]
-            ax.errorbar(lag_params, avg_scores, yerr=std_scores, capsize=5, linewidth=2, marker='o', label=dataset_type)
-
-        ax.set_xlabel("Lag Parameter", fontsize=12)
-        ax.set_ylabel("Average Score", fontsize=12)
-        ax.set_title(f"Validation score vs Lag for {model.name}", fontsize=14, pad=20)
-        ax.tick_params(axis='both', labelsize=10)
-        ax.grid(True)
-        ax.legend(fontsize=10)
-
-        summary_text = (
-            r"$\bf{Model\ name}$" + f": {model.name}\n"
-            r"$\bf{Parameters}$" + f": {model.model_parameters}\n"
-            r"$\bf{Evaluated\ Datasets}$" + f": {', '.join(scores.keys())}\n"
-            r"$\bf{Lag\ Params}$" + f": {lag_params}\n"
-        )
-
-        fig.text(
-            0.1, 0.01,
-            summary_text,
-            ha='left',
-            fontsize=10,
-            bbox=dict(facecolor='white', alpha=0.8, edgecolor='lightgray')
-        )
-
-        plt.tight_layout()
-        fig.subplots_adjust(bottom=0.25)  
-
-        plot_path = os.path.join(plots_dir, f"{model.name}_lag_performance.png")
-        if show_plots:
-            plt.show()
-
-        plt.savefig(plot_path, bbox_inches='tight', dpi=300)
-        print(f"Saved lag performance plot to {plot_path}")
-        plt.close(fig)
-
-
-
+                # Save to unique file
+                safe_model_key = model_key.replace(" ", "_").replace(",", "").replace("=", "-")
+                filename = f"lag_performance_{safe_model_key}.png"
+                plot_path = os.path.join(plots_dir, filename)
+                plt.tight_layout()
+                fig.subplots_adjust(bottom=0.25)
+                plt.savefig(plot_path, bbox_inches='tight', dpi=300)
+                print(f"Saved per-model lag performance plot to {plot_path}")
+                plt.close(fig)
+             
                 # Print all configurations sorted by average validation error
         print("\n=== Sorted Results by Average Validation Score ===")
         summary_results.sort()  # Sort by mean_score ascending
         for mean_score, model_name, lag_param, dataset in summary_results:
             print(f"{model_name + ' ' + model.model_parameters:<25} | Dataset: {dataset:<12} | Lag: {lag_param:<3} | Avg Score: {mean_score:.4f}")
 
+                
+        json_path = os.path.join(results_dir, "raw_test_results.json")
+        with open(json_path, "w") as f:
+            json.dump(raw_results, f, indent=2)
 
-
+        print(f"Saved raw test results to {json_path}")
     finally:
         sys.stdout = original_stdout
         sys.stderr = original_stderr
@@ -368,6 +384,7 @@ def train(model: BaseModel,
           weights_dir: str,
           show_plots: bool,
           scaler: object,
+          model_params: Dict[str, Any],
           no_early_stopping: bool = False) -> float:
 
     run_name = generate_run_name(model)
@@ -425,7 +442,12 @@ def train(model: BaseModel,
   )
     # Save best model weights
     save_path = os.path.join(weights_dir, run_name + ".pt")
-    torch.save(best_state, save_path)
+    model_package = {
+        "model_class": model.__class__.__name__,
+        "model_parameters": model_params,  
+        "state_dict": best_state
+    }
+    torch.save(model_package, save_path)
 
     # Return raw MSE for sorting/summary
     _, raw_mse = test_loop(model, test_loader, loss_fn, scaler)
