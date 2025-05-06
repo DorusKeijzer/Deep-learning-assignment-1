@@ -50,25 +50,41 @@ def create_model(lag_param: int, model_class, params: Dict[str, Any]):
     # Instantiate the model using parameters in the dictionary
     return model_class(**params)
 
-def parse_lag_params(lag_params: str):
-    parsed_params = []
-    
-    for param in lag_params.split(","):
-        if "-" in param:  # A range is given
-            range_parts = param.split("-")
-            start = int(range_parts[0])
-            end = int(range_parts[1])
-            step = 1  # Default step size
-            
-            if ":" in range_parts[1]:  # Check if a step size is provided
-                end, step = map(int, range_parts[1].split(":"))
-            
-            parsed_params.extend(range(start, end + 1, step))
-        else:
-            parsed_params.append(int(param))
-    
-    return parsed_params
+def parse_lag_params(lag_params: str) -> list[int]:
+    """
+    Parse a string like "5,6,8-12:2,20" into a sorted list of ints:
+      - single values: "5"
+      - ranges:        "8-12"
+      - ranges+step:   "5-20:5"
+    """
+    parsed: set[int] = set()
 
+    for token in lag_params.split(","):
+        token = token.strip()
+        if "-" not in token:
+            # single value
+            parsed.add(int(token))
+        else:
+            # range (maybe with step)
+            # split into "start" and "rest"
+            start_str, rest = token.split("-", 1)
+            start = int(start_str)
+            if ":" in rest:
+                # form "end:step"
+                end_str, step_str = rest.split(":", 1)
+                end = int(end_str)
+                step = int(step_str)
+            else:
+                end = int(rest)
+                step = 1
+
+            if step <= 0:
+                raise ValueError(f"Step must be positive in '{token}'")
+            # build inclusive range
+            for v in range(start, end + 1, step):
+                parsed.add(v)
+
+    return sorted(parsed)
 
 @click.command()
 @click.option('--models', '-m', 
@@ -181,7 +197,8 @@ def main(models: List[str],
             for lag_param in lag_params:
                 for dataset in datasets:
                     for run in range(runs):
-                        padding_train_loader, padding_test_loader, nonpadding_train_loader, nonpadding_test_loader = create_datasets_and_loaders(lag_param)
+                        (loaders, scaler) = create_datasets_and_loaders(lag_param)
+                        padding_train_loader, padding_test_loader, nonpadding_train_loader, nonpadding_test_loader = loaders
                         if dataset == "Non-padding":
                             test_loader, train_loader = nonpadding_test_loader, nonpadding_train_loader
                         elif dataset == "Padding":
@@ -196,7 +213,19 @@ def main(models: List[str],
                             optimizer = None
 
                         print(f"Run {run+1}/{runs}: Training {model.name} on {dataset} with lag {lag_param}")
-                        score = train(model, train_loader, test_loader, learning_rate, epochs, LOSS_FUNC, optimizer, dataset, lag_param, plots_dir, weights_dir, show_plots)
+                        score = train(model,
+                                      train_loader,
+                                      test_loader,
+                                      learning_rate,
+                                      epochs,
+                                      LOSS_FUNC,
+                                      optimizer,
+                                      dataset,
+                                      lag_param,
+                                      plots_dir,
+                                      weights_dir,
+                                      show_plots,
+                                      scaler)
                         scores[dataset][lag_param].append(score)
 
 
@@ -266,221 +295,219 @@ def main(models: List[str],
         log_file.close()
 
 
+def plot_raw_losses(scaled_train_mse: list[float],
+                    raw_val_mse: list[float],
+                    model: BaseModel,
+                    dataset: str,
+                    run_name: str,
+                    lag: int,
+                    plots_dir: str,
+                    scaler: object,
+                    show_plots: bool):
+    sigma = float(scaler.scale_[0])
 
-def plot_losses(avg_train_losses: List[float], 
-                avg_val_losses: List[float], 
-                model: BaseModel,
-                dataset: str,
-                run_name: str,
-                lag: int,
-                plots_dir: str,
-                show_plots: bool):
+    raw_train_rmse = [math.sqrt(m) * sigma for m in scaled_train_mse]
+    raw_val_rmse = [math.sqrt(m) for m in raw_val_mse]
+
+    epochs = list(range(1, len(raw_train_rmse) + 1))
     
-    # Create larger figure with adjusted aspect ratio
-    fig, ax = plt.subplots(figsize=(12, 8))  # Width: 12", Height: 8"
-    
-    # Plot loss curves with thicker lines
-    ax.plot(range(len(avg_train_losses)), avg_train_losses, 
-            label="Train", linewidth=2)
-    ax.plot(range(len(avg_val_losses)), avg_val_losses, 
-            label="Validation", linewidth=2)
+    # Rest of the plotting code remains the same...
+    fig, ax = plt.subplots(figsize=(12, 8))
+    ax.plot(epochs, raw_train_rmse, label="Train RMSE", color="blue")
+    ax.plot(epochs, raw_val_rmse,   label="Val   RMSE", color="orange")
 
-    # Highlight minimum loss points with larger markers
-    best_train_epoch = np.argmin(avg_train_losses)
-    best_val_epoch = np.argmin(avg_val_losses)
+    # Highlight best epochs
+    best_train_ep = int(np.argmin(raw_train_rmse) + 1)
+    best_val_ep   = int(np.argmin(raw_val_rmse)   + 1)
+    ax.plot(best_train_ep, raw_train_rmse[best_train_ep-1], 'o', markersize=8, label="Best Train", color="blue")
+    ax.plot(best_val_ep,   raw_val_rmse[best_val_ep-1],     'o', markersize=8, label="Best Val", color="orange")
 
-    ax.plot(best_train_epoch, avg_train_losses[best_train_epoch], 
-            'o', color='blue', markersize=8, label='Best Train')
-    ax.plot(best_val_epoch, avg_val_losses[best_val_epoch], 
-            'o', color='orange', markersize=8, label='Best Val')
-
-    # Increase font sizes
-    ax.set_ylabel("MSE Loss", fontsize=12)
     ax.set_xlabel("Epoch", fontsize=12)
-    ax.set_title(f"Training curve of {model.name} on {dataset.lower()} dataset (lag={lag})", 
-                fontsize=14, pad=20)
+    ax.set_ylabel("RMSE (original units)", fontsize=12)
+    ax.set_title(f"{model.name} on {dataset} (lag={lag})", fontsize=14, pad=20)
     ax.legend(fontsize=10)
-    ax.tick_params(axis='both', which='major', labelsize=10)
+    ax.grid(True)
 
-    # Text box formatting
-    fig.text(
-        0.1, 0.01, 
-        r"$\bf{Model\ name}$" + f": {model.name}\n"
-        r"$\bf{Lag}$" + f": {lag}\n"
-        r"$\bf{Parameters}$" + f": {model.model_parameters}\n"
-        r"$\bf{Run}$" + f": {run_name}\n"
-        r"$\bf{Min\ Train\ Loss}$" + f": {avg_train_losses[best_train_epoch]:.2f} (epoch {best_train_epoch})\n"
-        r"$\bf{Min\ Val\ Loss}$" + f": {avg_val_losses[best_val_epoch]:.2f} (epoch {best_val_epoch})\n",
-        ha='left', 
-        fontsize=10,
-        bbox=dict(facecolor='white', alpha=0.8, edgecolor='lightgray')
+    # Text box summary
+    summary = (
+        f"Model: {model.name}\n"
+        f"Params: {model.model_parameters}\n"
+        f"Lag: {lag}\n"
+        f"Best Train RMSE: {raw_train_rmse[best_train_ep-1]:.3f} (ep {best_train_ep})\n"
+        f"Best Val   RMSE: {raw_val_rmse[best_val_ep-1]:.3f} (ep {best_val_ep})"
     )
+    fig.text(0.1, 0.02, summary, fontsize=10,
+             bbox=dict(facecolor='white', alpha=0.8, edgecolor='lightgray'))
 
-    # Adjust layout to prevent overlap
     plt.tight_layout()
-    fig.subplots_adjust(bottom=0.25)  # More space for text box
+    fig.subplots_adjust(bottom=0.25)
 
+    out_path = os.path.join(plots_dir, f"{run_name}_raw_rmse.png")
     if show_plots:
         plt.show()
-        
-    save_location = os.path.join(plots_dir, f"{run_name}.png")
-    plt.savefig(save_location, bbox_inches='tight', dpi=300)  # High-res save
-    plt.close(fig)  # Important: prevent memory leaks
-
-
+    fig.savefig(out_path, bbox_inches='tight', dpi=300)
+    plt.close(fig)
+    print(f"Saved raw‐unit RMSE plot to {out_path}")
 
 def generate_run_name(model: BaseModel):
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     name = f"{timestamp}_{model.name}_{model.model_parameters}"
     return re.sub(r":", "_", re.sub(r"\s+", "_", name))
 
+
 def train(model: BaseModel,
-         train_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]], 
-         test_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]], 
-         learning_rate: float, 
-         epochs: int,
-         loss_fn: Type[nn.MSELoss],
-         optimizer: torch.optim.Adam,
-         dataset: str,
-           lag: int,
+          train_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]],
+          test_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]],
+          learning_rate: float,
+          epochs: int,
+          loss_fn: Type[nn.MSELoss],
+          optimizer: torch.optim.Optimizer,
+          dataset: str,
+          lag: int,
           plots_dir: str,
           weights_dir: str,
           show_plots: bool,
-         no_early_stopping: bool = False,) -> float:
-
+          scaler: object,
+          no_early_stopping: bool = False) -> float:
 
     run_name = generate_run_name(model)
 
-    if not model.is_baseline:  # non baseline models need training
-        # Early stopping parameters
-        patience = 5
-        min_delta = 0.001
-        best_loss = float('inf')
-        epochs_without_improvement = 0
+    # Lists to collect scaled MSE per epoch
+    scaled_train_mse = []
+    scaled_val_mse   = []
 
-        # to store average loss per epoch
-        avg_train_losses = []
-        avg_val_losses = []
-        lowest_val_loss = 10e32
-        lowest_val_loss_model = None
-        
-        for epoch in range(epochs): 
-            print(f"\nEpoch {epoch+1}/{epochs}")
-            print("-------------------------------")
-            
-            # Training phase
-            avg_train_loss = train_loop(model, train_loader, learning_rate, loss_fn, optimizer)
-            avg_train_losses.append(avg_train_loss)
-            
-            # Validation phase
-            current_loss = test_loop(model, test_loader, loss_fn, return_loss=True)
-            
-            avg_val_losses.append(current_loss)
-
-            if current_loss < lowest_val_loss:
-                lowest_val_loss_model = model.state_dict()
+    best_scaled_mse = float('inf')
+    patience = 5
+    min_delta = 0.0001
+    epochs_no_improve = 0
+    best_state = None
 
 
-            # Early stopping logic
-            if not no_early_stopping:
-                if current_loss < best_loss - min_delta:
-                    best_loss = current_loss
-                    epochs_without_improvement = 0
-                    # Optional: save best model
-                    # torch.save(model.state_dict(), 'best_model.pth')
-                else:
-                    epochs_without_improvement += 1
-                    if epochs_without_improvement >= patience:
-                        print(f"\nEarly stopping at epoch {epoch+1}")
-                        print(f"Validation loss didn't improve for {patience} epochs.")
-                        break
+# Inside the train function
+    scaled_val_mse = []
+    raw_val_mse = []
 
-        print(f"lowest validation loss: {np.min(avg_val_losses)} in epoch {np.argmin(avg_val_losses)}")
-        print(f"lowest training loss: {np.min(avg_train_losses)} in epoch {np.argmin(avg_train_losses)}")
+    for epoch in range(1, epochs + 1):
+        scaled_mse_train = train_loop(model, train_loader, learning_rate, loss_fn, optimizer)
+        scaled_train_mse.append(scaled_mse_train) 
+        # Validation
+        scaled_mse_val, raw_mse_val = test_loop(model, test_loader, loss_fn, scaler)
+        scaled_val_mse.append(scaled_mse_val)
+        raw_val_mse.append(raw_mse_val)
 
-        plot_losses(avg_train_losses, avg_val_losses, model, dataset, run_name, lag, plots_dir, show_plots)
-        save_loacation = os.path.join(weights_dir, run_name)
-        torch.save(lowest_val_loss_model, save_loacation)
-        return np.min(avg_val_losses)
+        # Early stopping based on scaled MSE
+        if scaled_mse_val < best_scaled_mse - min_delta:
+            best_scaled_mse = scaled_mse_val
+            epochs_no_improve = 0
+            best_state = model.state_dict()
+        else:
+            epochs_no_improve += 1
+            if not no_early_stopping and epochs_no_improve >= patience:
+                print(f"\nEarly stopping at epoch {epoch}")
+                break
+    # Report best scaled losses
+    best_train = min(scaled_train_mse)
+    best_val   = min(scaled_val_mse)
+    print(f"\nBest scaled train MSE: {best_train:.6f} (epoch {np.argmin(scaled_train_mse)+1})")
+    print(f"Best scaled  val MSE: {best_val:.6f} (epoch {np.argmin(scaled_val_mse)+1})")
 
-    else:  # baseline models only need to be evaluated
-        test_loop(model, test_loader, loss_fn)
+    # Plot RMSE in original units
+    plot_raw_losses(
+        scaled_train_mse,
+        raw_val_mse,  
+        model, 
+        dataset,
+        run_name, 
+        lag,
+        plots_dir,
+        scaler,
+        show_plots
+  )
+    # Save best model weights
+    save_path = os.path.join(weights_dir, run_name + ".pt")
+    torch.save(best_state, save_path)
+
+    # Return raw MSE for sorting/summary
+    _, raw_mse = test_loop(model, test_loader, loss_fn, scaler)
+    return raw_mse
 
 def train_loop(model: BaseModel,
-              train_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]],
-              learning_rate: float, 
-              loss_fn: Type[nn.MSELoss],
-              optimizer: torch.optim.Adam) -> float:
-    model.train()  # Set model to training mode
+               train_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]],
+               learning_rate: float,
+               loss_fn: Type[nn.MSELoss],
+               optimizer: torch.optim.Optimizer) -> float:
+
+    model.train()
     total_loss = 0.0
     total_samples = 0
-    
-    for batch, (x, y) in enumerate(train_loader):
-        # Ensure input has correct shape
-        if len(x.shape) == 2:
+
+    for batch_idx, (x, y) in enumerate(train_loader):
+        # x: [batch, lag]  → [batch, 1, lag] if needed
+        if x.dim() == 2:
             x = x.unsqueeze(1)
-            
-        # Ensure target has correct shape
-        if len(y.shape) == 1:
+        # y: [batch] → [batch,1]
+        if y.dim() == 1:
             y = y.unsqueeze(1)
-            
-        # Forward pass
+
         pred = model(x)
+        if pred.dim() == 1:
+            pred = pred.unsqueeze(1)
+
         loss = loss_fn(pred, y)
-        
-        # Backward pass and optimize
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        
-        # Track progress
+
         total_loss += loss.item() * x.size(0)
         total_samples += x.size(0)
-        
-        if batch % 5 == 0:
-            avg_loss = total_loss / total_samples if total_samples > 0 else 0
-            current = (batch + 1) * x.size(0)
-            size = len(train_loader.dataset)
-            print(f"loss: {avg_loss:>7f} [{current:>5d}/{size:>5d}]")
-    
-    # Print epoch summary
-    avg_epoch_loss = total_loss / total_samples
-    print(f"Epoch complete - average loss: {avg_epoch_loss:.6f}")
-    return avg_epoch_loss
 
+        if batch_idx % 5 == 0:
+            avg = total_loss / total_samples
+            print(f"loss: {avg:7f}  [{total_samples:5d}/{len(train_loader.dataset):5d}]")
+
+    epoch_loss = total_loss / total_samples
+    print(f"Epoch complete - average loss: {epoch_loss:.6f}")
+    return epoch_loss
 
 
 def test_loop(model: BaseModel,
               test_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]],
               loss_fn: Type[nn.MSELoss],
-              return_loss: bool = False) -> float:
-    test_loss: float = 0.0
-
+              scaler: object = None) -> Tuple[float, float]:
     model.eval()
-    num_batches = len(test_loader)
+    scaled_mse_accum = 0.0
+    all_preds = []
+    all_targs = []
 
     with torch.no_grad():
         for x, y in test_loader:
-            # Ensure input has correct shape
-            if len(x.shape) == 2:
+            if x.dim() == 2:
                 x = x.unsqueeze(1)
-            pred = model(x)
-            
-            # Ensure target has correct shape
-            if len(y.shape) == 1:
+            if y.dim() == 1:
                 y = y.unsqueeze(1)
-                
+
+            pred = model(x)
+            if pred.dim() == 1:
+                pred = pred.unsqueeze(1)
+
             loss = loss_fn(pred, y)
-            test_loss += loss.item()
+            scaled_mse_accum += loss.item()
 
-    test_loss /= num_batches
-    rmse = math.sqrt(test_loss)
-    print(f"Root MSE: {rmse:.6f}")
-    
-    if return_loss:
-        return test_loss  
-    return rmse
+            if scaler is not None:
+                p = scaler.inverse_transform(pred.cpu().numpy())
+                t = scaler.inverse_transform(y.cpu().numpy())
+                all_preds.append(p)
+                all_targs.append(t)
 
+    num_batches = len(test_loader)
+    scaled_mse = scaled_mse_accum / num_batches
+    raw_mse = scaled_mse  # Default if no scaler
 
+    if scaler is not None and all_preds:
+        all_preds = np.vstack(all_preds)
+        all_targs = np.vstack(all_targs)
+        raw_mse = np.mean((all_preds - all_targs) ** 2)
+
+    return scaled_mse, raw_mse
 if __name__ == '__main__':
     main()
