@@ -1,3 +1,4 @@
+from sklearn.preprocessing import StandardScaler
 from scipy.io import loadmat
 import torch
 from torch.utils.data import Dataset
@@ -45,19 +46,21 @@ class PaddingDataset(NonPaddingDataset):
     def __len__(self):
         return len(self.data) - self.lag_size  # Same calculation but includes padding
 
+def scale_data(train_data, test_data, scaler=None):
+    if scaler is None:
+        scaler = StandardScaler()  # Fit on training data if no scaler passed
+        scaler.fit(train_data)  # Fit the scaler on training data
+
+    train_data_scaled = scaler.transform(train_data)  # Apply scaling
+    test_data_scaled = scaler.transform(test_data)  # Apply scaling
+
+    return train_data_scaled, test_data_scaled, scaler
+
+
 def create_datasets_and_loaders(lag_size: int, test_ratio: float = 0.2, batch_size: int = 32, seed: int = 42):
     """
     Creates aligned train/test splits for both Padding and NonPadding datasets.
-    
-    Args:
-        lag_size: Size of the lookback window
-        test_ratio: Fraction of data to use for testing (0.0-1.0)
-        batch_size: Batch size for DataLoaders
-        seed: Random seed for reproducible splits
-        
-    Returns:
-        Tuple of (padding_train_loader, padding_test_loader, 
-                 nonpadding_train_loader, nonpadding_test_loader)
+    Applies scaling to the data.
     """
     raw_data = np.array(loadmat("data/Xtrain.mat")["Xtrain"]).flatten()
     n_total = len(raw_data)
@@ -66,6 +69,18 @@ def create_datasets_and_loaders(lag_size: int, test_ratio: float = 0.2, batch_si
     padding_ds = PaddingDataset(lag_size)
     nonpadding_ds = NonPaddingDataset(lag_size)
     
+    # Scale the data before splitting
+    padding_data = np.array([item[0] for item in padding_ds])  # Extract features from dataset
+    nonpadding_data = np.array([item[0] for item in nonpadding_ds])
+
+    # Scale both datasets (padding and nonpadding)
+    padding_data_scaled, _ , scaler = scale_data(padding_data, padding_data)
+    nonpadding_data_scaled, _, _ = scale_data(nonpadding_data, nonpadding_data, scaler)  # Use the same scaler
+
+    # Replace raw data with scaled data
+    padding_ds.data = padding_data_scaled.flatten()
+    nonpadding_ds.data = nonpadding_data_scaled.flatten()
+
     # Calculate split sizes
     test_size = int(n_total * test_ratio)
     train_size = n_total - test_size
@@ -100,8 +115,7 @@ def create_datasets_and_loaders(lag_size: int, test_ratio: float = 0.2, batch_si
         DataLoader(nonpadding_test, batch_size=batch_size, shuffle=False)
     )
     
-    return loaders
-
+    return loaders, scaler  # Return the scaler to inverse scaling during evaluation
 
 if __name__ == "__main__":
     ds = PaddingDataset(3)

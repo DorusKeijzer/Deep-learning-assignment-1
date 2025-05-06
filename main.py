@@ -5,12 +5,7 @@ import sys
 from datetime import datetime
 
 from scipy.io._fast_matrix_market import os
-from model_architectures.gru import GRUModel
-from model_architectures.baseline import MostRecentBaseline, MeanBaseline
-from torch.nn.modules import MSELoss
-from torch.optim import optimizer
 from torchvision.utils import math
-from model_architectures import baseline
 from utils.dataloader import create_datasets_and_loaders
 from model_architectures.models import models as ALL_MODELS
 from model_architectures.models import baselines, GRUs, OneDCNNs, TCNs, RNNs, LSTMs, TESTGRU #, etc.
@@ -21,18 +16,12 @@ from torch import nn
 from typing import List, Tuple
     
 from datetime import datetime
-from sklearn.model_selection import train_test_split
-from typing import TypeVar
 from typing import List, Tuple, Type, Dict, Any
 import torch
 from torch.utils.data import DataLoader
 from torch import nn
 import matplotlib.pyplot as plt
 import numpy as np
-
-
-dont_show_plots = False
-
 
 class Tee:
     """Duplicate output to both console and log file"""
