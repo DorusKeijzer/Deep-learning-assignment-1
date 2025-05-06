@@ -12,7 +12,7 @@ from torchvision.utils import math
 from model_architectures import baseline
 from utils.dataloader import create_datasets_and_loaders
 from model_architectures.models import models as ALL_MODELS
-from model_architectures.models import baselines, GRUs, OneDCNNs, TCNs, RNNs # LSTMs, etc.
+from model_architectures.models import baselines, GRUs, OneDCNNs, TCNs, RNNs, LSTMs, TESTGRU #, etc.
 from model_architectures.base_model import BaseModel
 import click
 import torch
@@ -60,17 +60,26 @@ def create_model(lag_param: int, model_class, params: Dict[str, Any]):
     # Instantiate the model using parameters in the dictionary
     return model_class(**params)
 
-# argument parsing
+
+def parse_lag_params(lag_param_str: str) -> List[int]:
+    result = set()
+    for part in lag_param_str.split(","):
+        if "-" in part:
+            start, end = map(int, part.split("-"))
+            result.update(range(start, end + 1))
+        else:
+            result.add(int(part))
+    return sorted(result)
+
+
 @click.command()
 @click.option('--models', '-m', 
               multiple=True,
-              type=click.Choice(['LSTM', 'GRU', '1DCNN', 'TCN', 'RNN'], case_sensitive=False), 
+              type=click.Choice(['LSTM', 'GRU', '1DCNN', 'TCN', 'RNN', "testGRU"], case_sensitive=False), 
               help='Model names to train (can specify multiple)')
 @click.option('--lag_params', '-l',
-              multiple=True,
-              default=[5],
-              type=int,
-              help='Lag parameters to test (can specify multiple)')
+              default="5",
+              help='Lag parameters to test. Accepts comma-separated values or ranges, e.g. "5,6,8" or "5-10" or "5,6,8-10"')
 @click.option('--datasets', '-d',
               multiple=True, 
               type=click.Choice(['Padding', 'Non-padding'], case_sensitive=False),
@@ -100,82 +109,36 @@ def create_model(lag_param: int, model_class, params: Dict[str, Any]):
               show_default=True,
               help="If set to True, does not show plots during runs"
               )
-
 def main(models: List[str],
-         lag_params: List[int], 
+         lag_params: str, 
          datasets: List[str], 
          epochs: int,
          learning_rate: float,
          no_early_stopping: bool,
          no_show: bool,) -> None:          
 
-    """
-    Train and evaluate models with different lag parameters on specified datasets.
-    
-    Args:
-        models: List of models to train. Choices are 'LSTM', 'GRU', 'TCN', or 'Transformer'.
-                If not specified, all models will be trained.
-        lag_params: List of lag parameters to test. Default is [5] if not specified.
-        datasets: List of dataset types to use. Choices are 'Padding' or 'Non-padding'.
-                  Default is both ['Padding', 'Non-padding'].
-        epochs: Number of training epochs. Default is 100.
-        learning_rate: Learning rate for training. Default is 1e-3.
-        no_early_stopping: If True, runs all epochs without early stopping.
-                          If False (default), may stop early based on validation performance.
-        no_show: if True, do not show plots between training runs (saves manual clicking). 
-
-    Notes:
-        - Multiple models, lag parameters, and datasets can be specified by repeating the flags
-        - Model names and dataset types are case-insensitive
-
-    Examples:
-        # Train LSTM and GRU with lags 5 and 10
-        python main.py -m LSTM -m GRU -l 5 -l 10
-        
-        # Train Transformer with lag 5 on Padding dataset
-        python main.py --models Transformer --lag_params 5 --dataset Padding
-        
-        # Train on both dataset types for 50 epochs without early stopping
-        python main.py -d Padding -d Non-padding --epochs 50 --no-early-stopping
-        
-        # Train all models with default parameters
-        python main.py
-    """
-
+    lag_params = parse_lag_params(lag_params)
     show_plots = not no_show
 
-    # creating save locations
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", timestamp)
 
-
     os.makedirs(results_dir, exist_ok=True)
-
     plots_dir = os.path.join(results_dir, "plots")
     weights_dir = os.path.join(results_dir, "weights")
-
     os.makedirs(plots_dir, exist_ok=True)
     os.makedirs(weights_dir, exist_ok=True)
 
     print(f"Saving results to: {results_dir}")
 
-    print(f"Saving results to: {results_dir}")
-
-    # Set up logging to file
     log_path = os.path.join(results_dir, 'run.log')
     log_file = open(log_path, 'w')
-    
-    # Save original stdout/stderr
     original_stdout = sys.stdout
     original_stderr = sys.stderr
-    
-    # Redirect all output to logging file as well
     sys.stdout = Tee(sys.stdout, log_file)
     sys.stderr = Tee(sys.stderr, log_file)
 
     try:
-
-
         models_to_evaluate: List[Tuple[Callable, Dict[str, Any]]] = []  
 
         if "1DCNN" in models:
@@ -186,17 +149,19 @@ def main(models: List[str],
             models_to_evaluate.extend(baselines)
         if "TCN" in models:
             models_to_evaluate.extend(TCNs)
+        if "testGRU" in models:
+            models_to_evaluate.extend(TESTGRU)
+        if "LSTM" in models:
+            models_to_evaluate.extend(LSTMs)
         if "RNN" in models:
             models_to_evaluate.extend(RNNs)
-        # etc. TODO: add when available
 
         if len(models_to_evaluate) == 0:
             models_to_evaluate = ALL_MODELS
 
         click.echo(f"Training models:")
         for model_class, params in models_to_evaluate:
-            # create temporary model to print model
-            temporary_model = create_model(1,model_class, params)
+            temporary_model = create_model(1, model_class, params)
             print(f"\t{temporary_model.name}:")
             print(f"\t  {temporary_model.parameters}")
         click.echo(f"Using lag parameters: {', '.join(map(str, lag_params))}")
@@ -204,6 +169,8 @@ def main(models: List[str],
         click.echo(f"For {epochs} epochs, with {'no ' if no_early_stopping else ''}early stopping.")
 
         for model_class, params in models_to_evaluate:
+            scores = { "Padding": [], "Non-padding": [] }
+            scores = { name: [] for name in datasets}
 
             for lag_param in lag_params:
                 for dataset in datasets:
@@ -211,23 +178,41 @@ def main(models: List[str],
                     if dataset == "Non-padding":
                         test_loader, train_loader = nonpadding_test_loader, nonpadding_train_loader
                     elif dataset == "Padding":
-                        test_loader, train_loader = padding_test_loader,    padding_train_loader
+                        test_loader, train_loader = padding_test_loader, padding_train_loader
                     else:
                         raise Exception(f"'{dataset}' is not a valid dataset. Dataset can only be 'Padding' or 'Non-padding'")
-                    model = create_model(lag_param, model_class, params)
-                    if not model.is_baseline:
-                        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-                    else: 
-                        optimizer = None
-                    print(f"Training and evaluating model: {model.name} {model.model_parameters} on dataset: {dataset}")
 
-                    train(model,train_loader, test_loader, learning_rate, epochs, LOSS_FUNC, optimizer, dataset, lag_param, plots_dir, weights_dir, show_plots)
+                    model = create_model(lag_param, model_class, params)
+                    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate) if not model.is_baseline else None
+
+                    print(f"Training and evaluating model: {model.name} {model.model_parameters} on dataset: {dataset} with lag parameter: {lag_param}")
+
+                    score = train(model, train_loader, test_loader, learning_rate, epochs, LOSS_FUNC, optimizer, dataset, lag_param, plots_dir, weights_dir, show_plots)
+                    scores[dataset].append(score)
+
+            # Plotting
+            import matplotlib.pyplot as plt
+            fig, ax = plt.subplots()
+            for dataset_type, dataset_scores in scores.items():
+                ax.plot(lag_params, dataset_scores, marker='o', label=dataset_type)
+            ax.set_xlabel("Lag Parameter")
+            ax.set_ylabel("Score")
+            ax.set_title(f"Performance vs Lag Parameter: {model.name}")
+            ax.legend()
+            ax.grid(True)
+
+            if show_plots:
+                plt.show()
+
+            plot_path = os.path.join(plots_dir, f"{model.name}_lag_performance.png")
+            fig.savefig(plot_path)
+            print(f"Saved lag performance plot to {plot_path}")
+            plt.close(fig)
 
     finally:
-        # Restore original output streams
         sys.stdout = original_stdout
         sys.stderr = original_stderr
-        log_file.close()        
+        log_file.close()
 
 
 
@@ -310,7 +295,7 @@ def train(model: BaseModel,
           plots_dir: str,
           weights_dir: str,
           show_plots: bool,
-         no_early_stopping: bool = False,) -> None:
+         no_early_stopping: bool = False,) -> float:
 
 
     run_name = generate_run_name(model)
@@ -365,6 +350,7 @@ def train(model: BaseModel,
         plot_losses(avg_train_losses, avg_val_losses, model, dataset, run_name, lag, plots_dir, show_plots)
         save_loacation = os.path.join(weights_dir, run_name)
         torch.save(lowest_val_loss_model, save_loacation)
+        return np.min(avg_val_losses)
 
     else:  # baseline models only need to be evaluated
         test_loop(model, test_loader, loss_fn)

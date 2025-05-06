@@ -17,6 +17,11 @@ GRUs = [
     (GRUModel, {"hidden_dim": 64, "num_layers": 4}),
 ]
 
+TESTGRU = [
+    (GRUModel, {"hidden_dim": 32, "num_layers": 2})
+]   
+
+
 # 1D CNNs: 
 OneDCNNs = [
     (CNN1DModel, {})
