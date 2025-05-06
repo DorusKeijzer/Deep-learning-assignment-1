@@ -50,3 +50,34 @@ class GRUModel(BaseModel):
         # Take the last time step's output
         out = self.fc(out[:, -1, :])
         return out.squeeze()  # Remove extra dimension to match target shape
+
+
+class AttentionGRUModel(BaseModel):
+    def __init__(self, input_size: int, hidden_dim: int = 64, num_layers: int = 2, 
+                 attention_units: int = 32):
+        super().__init__(input_size)
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+        self.attention_units = attention_units
+        
+        self.gru = torch.nn.GRU(input_size, hidden_dim, num_layers, batch_first=True)
+        self.attention = torch.nn.Sequential(
+            torch.nn.Linear(hidden_dim, attention_units),
+            torch.nn.Tanh(),
+            torch.nn.Linear(attention_units, 1)
+        )
+        self.fc = torch.nn.Linear(hidden_dim, 1)
+        
+    @property
+    def model_parameters(self):
+        return f"hidden={self.hidden_dim}, layers={self.num_layers}, attn={self.attention_units}"
+    
+    @property
+    def name(self):
+        return f"AttentionGRU_{self.model_parameters}"
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        outputs, _ = self.gru(x)
+        attention_weights = torch.softmax(self.attention(outputs), dim=1)
+        context_vector = torch.sum(attention_weights * outputs, dim=1)
+        return self.fc(context_vector)
