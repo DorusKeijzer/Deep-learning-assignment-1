@@ -21,6 +21,7 @@ Args:
 - `learning_rate`: Learning rate for training. Default is 1e-3.
 - `no_early_stopping`: If True, runs all epochs without early stopping. If False (default), may stop early based on validation performance.
 - `no_show`: If True, does not show  plots between runs
+- `lag_params`: either an integer, or a range of integers (`l 5-10`)
 
 Notes:
   - Multiple models, lag parameters, and datasets can be specified by repeating the flags
@@ -29,7 +30,7 @@ Notes:
 Examples: 
 
 ```bash       
-    python main.py -m LSTM -m GRU -l 5 -l 10
+    python main.py -m LSTM -m GRU -l 5-10
     python main.py --models Transformer --lag_params 5 --dataset Padding
     python main.py -d Padding -d Non-padding --epochs 50 --no-early-stopping
     python main.py

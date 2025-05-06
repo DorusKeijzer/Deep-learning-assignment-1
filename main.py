@@ -1,3 +1,4 @@
+from collections import defaultdict
 from collections.abc import Callable
 import re
 import sys
@@ -109,13 +110,19 @@ def parse_lag_params(lag_param_str: str) -> List[int]:
               show_default=True,
               help="If set to True, does not show plots during runs"
               )
+@click.option('--runs', '-r',
+              type=int,
+              default=3,
+              show_default=True,
+              help="Number of times to repeat each experiment (averages out randomness).")
 def main(models: List[str],
          lag_params: str, 
          datasets: List[str], 
          epochs: int,
          learning_rate: float,
          no_early_stopping: bool,
-         no_show: bool,) -> None:          
+         no_show: bool,
+         runs: int,) -> None:          
 
     lag_params = parse_lag_params(lag_params)
     show_plots = not no_show
@@ -140,6 +147,8 @@ def main(models: List[str],
 
     try:
         models_to_evaluate: List[Tuple[Callable, Dict[str, Any]]] = []  
+        summary_results = []  # To store (mean_score, model_name, lag_param, dataset)
+
 
         if "1DCNN" in models:
             models_to_evaluate.extend(OneDCNNs)
@@ -169,45 +178,90 @@ def main(models: List[str],
         click.echo(f"For {epochs} epochs, with {'no ' if no_early_stopping else ''}early stopping.")
 
         for model_class, params in models_to_evaluate:
-            scores = { "Padding": [], "Non-padding": [] }
-            scores = { name: [] for name in datasets}
+            scores = defaultdict(lambda: defaultdict(list))  # scores[dataset][lag] = [score1, score2, score3...]
+
 
             for lag_param in lag_params:
                 for dataset in datasets:
-                    padding_train_loader, padding_test_loader, nonpadding_train_loader, nonpadding_test_loader = create_datasets_and_loaders(lag_param)
-                    if dataset == "Non-padding":
-                        test_loader, train_loader = nonpadding_test_loader, nonpadding_train_loader
-                    elif dataset == "Padding":
-                        test_loader, train_loader = padding_test_loader, padding_train_loader
-                    else:
-                        raise Exception(f"'{dataset}' is not a valid dataset. Dataset can only be 'Padding' or 'Non-padding'")
+                    for run in range(runs):
+                        padding_train_loader, padding_test_loader, nonpadding_train_loader, nonpadding_test_loader = create_datasets_and_loaders(lag_param)
+                        if dataset == "Non-padding":
+                            test_loader, train_loader = nonpadding_test_loader, nonpadding_train_loader
+                        elif dataset == "Padding":
+                            test_loader, train_loader = padding_test_loader, padding_train_loader
+                        else:
+                            raise Exception(f"'{dataset}' is not a valid dataset. Dataset can only be 'Padding' or 'Non-padding'")
+                        
+                        model = create_model(lag_param, model_class, params)
+                        if not model.is_baseline:
+                            optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+                        else:
+                            optimizer = None
 
-                    model = create_model(lag_param, model_class, params)
-                    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate) if not model.is_baseline else None
+                        print(f"Run {run+1}/{runs}: Training {model.name} on {dataset} with lag {lag_param}")
+                        score = train(model, train_loader, test_loader, learning_rate, epochs, LOSS_FUNC, optimizer, dataset, lag_param, plots_dir, weights_dir, show_plots)
+                        scores[dataset][lag_param].append(score)
 
-                    print(f"Training and evaluating model: {model.name} {model.model_parameters} on dataset: {dataset} with lag parameter: {lag_param}")
 
-                    score = train(model, train_loader, test_loader, learning_rate, epochs, LOSS_FUNC, optimizer, dataset, lag_param, plots_dir, weights_dir, show_plots)
-                    scores[dataset].append(score)
 
-            # Plotting
-            import matplotlib.pyplot as plt
-            fig, ax = plt.subplots()
-            for dataset_type, dataset_scores in scores.items():
-                ax.plot(lag_params, dataset_scores, marker='o', label=dataset_type)
-            ax.set_xlabel("Lag Parameter")
-            ax.set_ylabel("Score")
-            ax.set_title(f"Performance vs Lag Parameter: {model.name}")
-            ax.legend()
-            ax.grid(True)
+                            # Only collect average after the final run for that config
+                        if run == runs - 1:
+                            mean_score = np.mean(scores[dataset][lag_param])
+                            summary_results.append((mean_score, model.name, lag_param, dataset))
 
-            if show_plots:
-                plt.show()
 
-            plot_path = os.path.join(plots_dir, f"{model.name}_lag_performance.png")
-            fig.savefig(plot_path)
-            print(f"Saved lag performance plot to {plot_path}")
-            plt.close(fig)
+
+
+
+        fig, ax = plt.subplots(figsize=(12, 8)) 
+
+        for dataset_type, dataset_scores in scores.items():
+            avg_scores = [np.mean(dataset_scores[lag]) for lag in lag_params]
+            std_scores = [np.std(dataset_scores[lag]) for lag in lag_params]
+            ax.errorbar(lag_params, avg_scores, yerr=std_scores, capsize=5, linewidth=2, marker='o', label=dataset_type)
+
+        ax.set_xlabel("Lag Parameter", fontsize=12)
+        ax.set_ylabel("Average Score", fontsize=12)
+        ax.set_title(f"Validation score vs Lag for {model.name}", fontsize=14, pad=20)
+        ax.tick_params(axis='both', labelsize=10)
+        ax.grid(True)
+        ax.legend(fontsize=10)
+
+        summary_text = (
+            r"$\bf{Model\ name}$" + f": {model.name}\n"
+            r"$\bf{Parameters}$" + f": {model.model_parameters}\n"
+            r"$\bf{Evaluated\ Datasets}$" + f": {', '.join(scores.keys())}\n"
+            r"$\bf{Lag\ Params}$" + f": {lag_params}\n"
+        )
+
+        fig.text(
+            0.1, 0.01,
+            summary_text,
+            ha='left',
+            fontsize=10,
+            bbox=dict(facecolor='white', alpha=0.8, edgecolor='lightgray')
+        )
+
+        plt.tight_layout()
+        fig.subplots_adjust(bottom=0.25)  
+
+        plot_path = os.path.join(plots_dir, f"{model.name}_lag_performance.png")
+        if show_plots:
+            plt.show()
+
+        plt.savefig(plot_path, bbox_inches='tight', dpi=300)
+        print(f"Saved lag performance plot to {plot_path}")
+        plt.close(fig)
+
+
+
+                # Print all configurations sorted by average validation error
+        print("\n=== Sorted Results by Average Validation Score ===")
+        summary_results.sort()  # Sort by mean_score ascending
+        for mean_score, model_name, lag_param, dataset in summary_results:
+            print(f"{model_name + ' ' + model.model_parameters:<25} | Dataset: {dataset:<12} | Lag: {lag_param:<3} | Avg Score: {mean_score:.4f}")
+
+
 
     finally:
         sys.stdout = original_stdout

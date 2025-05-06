@@ -1,7 +1,7 @@
 # .gitignore
 
 # Ignore everything in report/results
-report/results/*
+results/*
 
 # But keep these files and folders
 !report/results/.gitkeep
