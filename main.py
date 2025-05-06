@@ -50,16 +50,24 @@ def create_model(lag_param: int, model_class, params: Dict[str, Any]):
     # Instantiate the model using parameters in the dictionary
     return model_class(**params)
 
-
-def parse_lag_params(lag_param_str: str) -> List[int]:
-    result = set()
-    for part in lag_param_str.split(","):
-        if "-" in part:
-            start, end = map(int, part.split("-"))
-            result.update(range(start, end + 1))
+def parse_lag_params(lag_params: str):
+    parsed_params = []
+    
+    for param in lag_params.split(","):
+        if "-" in param:  # A range is given
+            range_parts = param.split("-")
+            start = int(range_parts[0])
+            end = int(range_parts[1])
+            step = 1  # Default step size
+            
+            if ":" in range_parts[1]:  # Check if a step size is provided
+                end, step = map(int, range_parts[1].split(":"))
+            
+            parsed_params.extend(range(start, end + 1, step))
         else:
-            result.add(int(part))
-    return sorted(result)
+            parsed_params.append(int(param))
+    
+    return parsed_params
 
 
 @click.command()
@@ -69,7 +77,7 @@ def parse_lag_params(lag_param_str: str) -> List[int]:
               help='Model names to train (can specify multiple)')
 @click.option('--lag_params', '-l',
               default="5",
-              help='Lag parameters to test. Accepts comma-separated values or ranges, e.g. "5,6,8" or "5-10" or "5,6,8-10"')
+              help='Lag parameters to test. Accepts comma-separated values or ranges, e.g. "5,6,8" or "5-10" or "5,6,8-10:2"')
 @click.option('--datasets', '-d',
               multiple=True, 
               type=click.Choice(['Padding', 'Non-padding'], case_sensitive=False),
