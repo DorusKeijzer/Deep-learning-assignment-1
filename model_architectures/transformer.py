@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from model_architectures.base_model import BaseModel
+import math
 
 class TransformerModel(BaseModel):
     def __init__(self, input_size: int, d_model: int = 64, nhead: int = 4, num_layers: int = 2):

@@ -201,12 +201,11 @@ def main(models: List[str],
             for lag_param in lag_params:
                 for dataset in datasets:
                     for run in range(runs):
-                        (loaders, scaler) = create_datasets_and_loaders(lag_param)
-                        padding_train_loader, padding_test_loader, nonpadding_train_loader, nonpadding_test_loader = loaders
                         if dataset == "Non-padding":
-                            test_loader, train_loader = nonpadding_test_loader, nonpadding_train_loader
+
+                            train_loader, test_loader, scaler = create_datasets_and_loaders(lag_param, False)
                         elif dataset == "Padding":
-                            test_loader, train_loader = padding_test_loader, padding_train_loader
+                            train_loader, test_loader, scaler = create_datasets_and_loaders(lag_param, True)
                         else:
                             raise Exception(f"'{dataset}' is not a valid dataset. Dataset can only be 'Padding' or 'Non-padding'")
 
@@ -296,8 +295,8 @@ def main(models: List[str],
                 # Print all configurations sorted by average validation error
         print("\n=== Sorted Results by Average Validation Score ===")
         summary_results.sort()  # Sort by mean_score ascending
-        for mean_score, model_name, lag_param, dataset in summary_results:
-            print(f"{model_name + ' ' + model.model_parameters:<25} | Dataset: {dataset:<12} | Lag: {lag_param:<3} | Avg Score: {mean_score:.4f}")
+        for mean_score, model_name, lag_, dataset in summary_results:
+            print(f"{model_name + ' ' + model.model_parameters:<25} | Dataset: {dataset:<12} | Lag: {lag_:<3} | Avg Score: {mean_score:.4f}")
 
                 
         json_path = os.path.join(results_dir, "raw_test_results.json")
@@ -327,7 +326,6 @@ def plot_raw_losses(scaled_train_mse: list[float],
 
     epochs = list(range(1, len(raw_train_rmse) + 1))
     
-    # Rest of the plotting code remains the same...
     fig, ax = plt.subplots(figsize=(12, 8))
     ax.plot(epochs, raw_train_rmse, label="Train RMSE", color="blue")
     ax.plot(epochs, raw_val_rmse,   label="Val   RMSE", color="orange")
@@ -491,13 +489,15 @@ def train_loop(model: BaseModel,
     print(f"Epoch complete - average loss: {epoch_loss:.6f}")
     return epoch_loss
 
-
-def test_loop(model: BaseModel,
-              test_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]],
-              loss_fn: Type[nn.MSELoss],
-              scaler: object = None) -> Tuple[float, float]:
+def test_loop(
+    model: BaseModel,
+    test_loader: DataLoader[Tuple[torch.Tensor, torch.Tensor]],
+    loss_fn: Type[nn.MSELoss],
+    scaler: object = None
+) -> Tuple[float, float]:
     model.eval()
-    scaled_mse_accum = 0.0
+    total_scaled_loss = 0.0  # Track total loss across all samples
+    total_samples = 0        # Track total number of samples
     all_preds = []
     all_targs = []
 
@@ -512,8 +512,13 @@ def test_loop(model: BaseModel,
             if pred.dim() == 1:
                 pred = pred.unsqueeze(1)
 
-            loss = loss_fn(pred, y)
-            scaled_mse_accum += loss.item()
+            # Calculate loss for the entire batch (mean reduction is default)
+            batch_loss = loss_fn(pred, y)
+            
+            # Accumulate loss weighted by batch size
+            batch_size = x.size(0)
+            total_scaled_loss += batch_loss.item() * batch_size
+            total_samples += batch_size
 
             if scaler is not None:
                 p = scaler.inverse_transform(pred.cpu().numpy())
@@ -521,8 +526,7 @@ def test_loop(model: BaseModel,
                 all_preds.append(p)
                 all_targs.append(t)
 
-    num_batches = len(test_loader)
-    scaled_mse = scaled_mse_accum / num_batches
+    scaled_mse = total_scaled_loss / total_samples  
     raw_mse = scaled_mse  # Default if no scaler
 
     if scaler is not None and all_preds:
@@ -531,5 +535,6 @@ def test_loop(model: BaseModel,
         raw_mse = np.mean((all_preds - all_targs) ** 2)
 
     return scaled_mse, raw_mse
+
 if __name__ == '__main__':
     main()
