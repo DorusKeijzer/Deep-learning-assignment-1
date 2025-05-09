@@ -43,6 +43,7 @@ class Tee:
 
 # loss function is MSE everywhere
 LOSS_FUNC = nn.MSELoss()
+LOSS_FUNC = nn.MSELoss()
 
 def create_model(lag_param: int, model_class, params: Dict[str, Any]):
     """creates a model suitable to the current input sise of the specified class using the specified parameter"""
@@ -438,6 +439,7 @@ def train(model: BaseModel,
         scaler,
         show_plots
   )
+
     # Save best model weights
     save_path = os.path.join(weights_dir, run_name + ".pt")
     model_package = {

@@ -8,89 +8,69 @@ import click
 from typing import Dict, Type
 
 # Model imports
-from model_architectures.baseline import MostRecentBaseline, MeanBaseline
-from model_architectures.gru import GRUModel
-from model_architectures.one_dim_cnn import CNN1DModel
-from model_architectures.tcn import TCNModel
-from model_architectures.rnn import SimpleRNNModel
 from model_architectures.lstm import LSTMModel
-
 
 def load_model_from_file(filepath: str, model_classes: Dict[str, Type[nn.Module]]) -> nn.Module:
     package = torch.load(filepath, map_location="cpu")
-
-    class_name = package["model_class"]
-    params = package["model_parameters"]
-    state_dict = package["state_dict"]
-
-    if class_name not in model_classes:
-        raise ValueError(f"Unknown model class: {class_name}")
-
-    model_class = model_classes[class_name]
-    model = model_class(**params)
-    model.load_state_dict(state_dict)
+    # FORCE CORRECT PARAMS - CRITICAL FIX
+    package["model_parameters"]["input_size"] = 1  # <--- THIS WAS MISSING
+    model_class = model_classes[package["model_class"]]
+    model = model_class(**package["model_parameters"])
+    model.load_state_dict(package["state_dict"])
     model.eval()
     return model
 
-
 @click.command()
-@click.option('--model_name', '-n',
-              type=click.Choice(['gru', 'lstm', 'cnn', 'rnn', 'tcn']),
-              required=True,
-              help='Name of the model architecture to use')
-@click.option('--model_path', '-m',
-              type=click.Path(exists=True),
-              required=True,
-              help='Path to the state dict of the model')
-@click.option('--lag_param', '-l',
-              type=int,
-              required=True,
-              help='Lag parameter window size expected by this model')
-def main(model_name: str, model_path: str, lag_param: int):
-    # Available models
-    model_class_map = {
-        'GRUModel': GRUModel,
-        'LSTMModel': LSTMModel,
-        'CNN1DModel': CNN1DModel,
-        'SimpleRNNModel': SimpleRNNModel,
-        'TCNModel': TCNModel,
-        'MeanBaseline': MeanBaseline,
-        'MostRecentBaseline': MostRecentBaseline,
-    }
+@click.option('--model_path', '-m', required=True)
+@click.option('--lag_param', '-l', type=int, required=True)
+def main(model_path: str, lag_param: int):
+    # Load model
+    model = load_model_from_file(model_path, {"LSTMModel": LSTMModel})
 
-
-
-    # Load the model from the file (includes class, params, and weights)
-    model = load_model_from_file(model_path, model_class_map)
-
-    # Load and preprocess data
-    data = list(np.array(loadmat("data/Xtrain.mat")["Xtrain"]).flatten())
-
+    # Load data
+    train_data = loadmat("data/Xtrain.mat")["Xtrain"].flatten().astype(np.float32)
+    test_data = loadmat("data/Xtest.mat")["Xtest"].flatten().astype(np.float32)[:200]
+    
+    # Initialize scaler
     scaler = StandardScaler()
-    scaled_data = scaler.fit_transform(np.array(data).reshape(-1, 1)).flatten()
-    input_data = torch.tensor(scaled_data[-lag_param:], dtype=torch.float32).unsqueeze(0)
+    scaled_train = scaler.fit_transform(train_data.reshape(-1, 1)).flatten()
 
+    window = scaled_train[-lag_param:].copy()  
     predictions = []
-    original_data_for_plotting = scaled_data.tolist()
 
     for _ in range(200):
-        output = model(input_data)
-        output_value = output.item()
-        predictions.append(output_value)
-        input_data = torch.cat((input_data[:, 1:], torch.tensor([[output_value]], dtype=torch.float32)), dim=1)
+        # Input tensor from SCALED window
+        input_tensor = torch.tensor(window, dtype=torch.float32).view(1, lag_param, 1)
+        
+        # Predict
+        with torch.no_grad():
+            pred_scaled = model(input_tensor).item()
+        
+        # Store ORIGINAL-SCALE prediction
+        pred = scaler.inverse_transform([[pred_scaled]]).item()
+        predictions.append(pred)
+        
+        # Update window WITH NEW SCALED VALUE
+        new_scaled = scaler.transform([[pred]]).flatten()[0] 
+        window = np.concatenate([window[1:], [new_scaled]])
+    # Calculate metrics
+    mse = np.mean((np.array(predictions) - test_data) ** 2)
+    mae = np.mean(np.abs(np.array(predictions) - test_data))
 
     # Plotting
-    plt.figure(figsize=(10, 6))
-    plt.plot(original_data_for_plotting, color='blue', label="Original Data")
-    plt.plot(range(len(original_data_for_plotting), len(original_data_for_plotting) + len(predictions)), predictions, color='red', label="Autoregressive Prediction")
-
-    plt.xlabel('Time Step', fontsize=12)
-    plt.ylabel('Value', fontsize=12)
-    plt.title(f"Original Data and Autoregressive Predictions for {model_name.upper()}", fontsize=14)
+    plt.figure(figsize=(12, 6))
+    plt.plot(train_data, label="Training Data", alpha=0.7)
+    plt.plot(range(len(train_data), len(train_data)+200), predictions, 
+             label="Predictions", color='orange')
+    plt.plot(range(len(train_data), len(train_data)+200), test_data, 
+             label="True Values", color='green', linestyle='--')
+    
+    plt.title(f"Autoregressive Predictions\nMSE: {mse:.2f}, MAE: {mae:.2f}")
+    plt.xlabel("Time Step")
+    plt.ylabel("Value")
     plt.legend()
     plt.grid(True)
     plt.show()
-
 
 if __name__ == "__main__":
     main()

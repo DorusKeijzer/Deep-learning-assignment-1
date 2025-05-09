@@ -47,6 +47,20 @@ class PaddingDataset(Dataset):
         target = self.data[idx + self.lag_size]
         return feature, target
 
+def create_complete_loader(filename: str, lag_size: int, batch_size: int=32):
+    """Creates a dataloader for the complete dataset"""
+    if filename == "data/Xtest.mat":
+        loc = "Xtest"
+    if filename == "data/Xtrain.mat":
+        loc = "Xtrain"
+
+    raw_data = loadmat(filename)[loc].flatten().astype(np.float32)
+    scaler = StandardScaler()
+    ds = NonPaddingDataset(raw_data, lag_size=lag_size)
+    loader = DataLoader(ds, batch_size=batch_size, shuffle=True)
+
+    return loader, scaler
+
 def create_datasets_and_loaders(
     lag_size: int, 
     use_padding: bool,
