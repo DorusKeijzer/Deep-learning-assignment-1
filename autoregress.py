@@ -13,7 +13,7 @@ from model_architectures.lstm import LSTMModel
 def load_model_from_file(filepath: str, model_classes: Dict[str, Type[nn.Module]]) -> nn.Module:
     package = torch.load(filepath, map_location="cpu")
     # FORCE CORRECT PARAMS - CRITICAL FIX
-    package["model_parameters"]["input_size"] = 1  # <--- THIS WAS MISSING
+    package["model_parameters"]["input_size"] = 1  
     model_class = model_classes[package["model_class"]]
     model = model_class(**package["model_parameters"])
     model.load_state_dict(package["state_dict"])
@@ -48,10 +48,10 @@ def main(model_path: str, lag_param: int):
         
         # Store ORIGINAL-SCALE prediction
         pred = scaler.inverse_transform([[pred_scaled]]).item()
-        predictions.append(pred)
         
         # Update window WITH NEW SCALED VALUE
         new_scaled = scaler.transform([[pred]]).flatten()[0] 
+        predictions.append(new_scaled)
         window = np.concatenate([window[1:], [new_scaled]])
     # Calculate metrics
     mse = np.mean((np.array(predictions) - test_data) ** 2)
