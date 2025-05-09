@@ -69,14 +69,18 @@ RNNs = [
 
 
 LSTMs = [
-    (LSTMModel, {"hidden_dim": 16, "num_layers": 1}),
-    (LSTMModel, {"hidden_dim": 16, "num_layers": 2}),
-    (LSTMModel, {"hidden_dim": 32, "num_layers": 1}),
-    (LSTMModel, {"hidden_dim": 32, "num_layers": 2}),
-    (LSTMModel, {"hidden_dim": 64, "num_layers": 1}),
-    (LSTMModel, {"hidden_dim": 64, "num_layers": 2}),
-    (LSTMModel, {"hidden_dim": 128, "num_layers": 1}),
-    (LSTMModel, {"hidden_dim": 128, "num_layers": 2}),
+    # (LSTMModel, {"hidden_dim": 16, "num_layers": 1}),
+    # (LSTMModel, {"hidden_dim": 16, "num_layers": 2}),
+    # (LSTMModel, {"hidden_dim": 16, "num_layers": 3}),
+    # (LSTMModel, {"hidden_dim": 32, "num_layers": 1}),
+    # (LSTMModel, {"hidden_dim": 32, "num_layers": 2}),
+    # (LSTMModel, {"hidden_dim": 32, "num_layers": 3}),
+    # (LSTMModel, {"hidden_dim": 64, "num_layers": 1}),
+    # (LSTMModel, {"hidden_dim": 64, "num_layers": 2}),
+    # (LSTMModel, {"hidden_dim": 64, "num_layers": 3}),
+    # (LSTMModel, {"hidden_dim": 128, "num_layers": 1}),
+    # (LSTMModel, {"hidden_dim": 128, "num_layers": 2}),
+    (LSTMModel, {"hidden_dim": 128, "num_layers":   3}),
 ]
 
 # ...

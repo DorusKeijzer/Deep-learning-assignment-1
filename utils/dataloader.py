@@ -79,7 +79,6 @@ def create_datasets_and_loaders(
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
     return train_loader, test_loader, scaler
-
 if __name__ == "__main__":
     # Create datasets with aligned splits
     padding_train_loader, padding_test_loader, _ = create_datasets_and_loaders(

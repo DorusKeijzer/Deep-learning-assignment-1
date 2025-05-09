@@ -185,8 +185,8 @@ def main(models: List[str],
         click.echo(f"Training models:")
         for model_class, params in models_to_evaluate:
             temporary_model = create_model(1, model_class, params)
-            print(f"\t{temporary_model.name}:")
-            print(f"\t  {temporary_model.parameters}")
+            # print(f"\t{temporary_model.name}:")
+            # print(f"\t  {temporary_model.parameters}")
         click.echo(f"Using lag parameters: {', '.join(map(str, lag_params))}")
         click.echo(f"On datasets: {', '.join(map(str, datasets))}")
         click.echo(f"For {epochs} epochs, with {'no ' if no_early_stopping else ''}early stopping.")
@@ -219,7 +219,7 @@ def main(models: List[str],
                         if model_key not in scores_by_model_and_dataset:
                             scores_by_model_and_dataset[model_key] = {}
 
-                        print(f"Run {run+1}/{runs}: Training {model.name} on {dataset} with lag {lag_param}")
+                        # print(f"Run {run+1}/{runs}: Training {model.name} on {dataset} with lag {lag_param}")
                         score = train(
                             model, train_loader, test_loader,
                             learning_rate, epochs, LOSS_FUNC,
@@ -289,7 +289,7 @@ def main(models: List[str],
                 plt.tight_layout()
                 fig.subplots_adjust(bottom=0.25)
                 plt.savefig(plot_path, bbox_inches='tight', dpi=300)
-                print(f"Saved per-model lag performance plot to {plot_path}")
+                # print(f"Saved per-model lag performance plot to {plot_path}")
                 plt.close(fig)
              
                 # Print all configurations sorted by average validation error
@@ -361,7 +361,7 @@ def plot_raw_losses(scaled_train_mse: list[float],
         plt.show()
     fig.savefig(out_path, bbox_inches='tight', dpi=300)
     plt.close(fig)
-    print(f"Saved raw‐unit RMSE plot to {out_path}")
+    # print(f"Saved raw‐unit RMSE plot to {out_path}")
 
 def generate_run_name(model: BaseModel):
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -418,13 +418,13 @@ def train(model: BaseModel,
         else:
             epochs_no_improve += 1
             if not no_early_stopping and epochs_no_improve >= patience:
-                print(f"\nEarly stopping at epoch {epoch}")
+                # print(f"\nEarly stopping at epoch {epoch}")
                 break
     # Report best scaled losses
     best_train = min(scaled_train_mse)
     best_val   = min(scaled_val_mse)
-    print(f"\nBest scaled train MSE: {best_train:.6f} (epoch {np.argmin(scaled_train_mse)+1})")
-    print(f"Best scaled  val MSE: {best_val:.6f} (epoch {np.argmin(scaled_val_mse)+1})")
+    # print(f"\nBest scaled train MSE: {best_train:.6f} (epoch {np.argmin(scaled_train_mse)+1})")
+    # print(f"Best scaled  val MSE: {best_val:.6f} (epoch {np.argmin(scaled_val_mse)+1})")
 
     # Plot RMSE in original units
     plot_raw_losses(
@@ -483,10 +483,10 @@ def train_loop(model: BaseModel,
 
         if batch_idx % 5 == 0:
             avg = total_loss / total_samples
-            print(f"loss: {avg:7f}  [{total_samples:5d}/{len(train_loader.dataset):5d}]")
+            # print(f"loss: {avg:7f}  [{total_samples:5d}/{len(train_loader.dataset):5d}]")
 
     epoch_loss = total_loss / total_samples
-    print(f"Epoch complete - average loss: {epoch_loss:.6f}")
+    # print(f"Epoch complete - average loss: {epoch_loss:.6f}")
     return epoch_loss
 
 def test_loop(
